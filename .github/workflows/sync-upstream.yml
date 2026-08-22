@@ -1,0 +1,40 @@
+name: Sync master with upstream renpy/renpy
+
+# master carries no local patches -- it exists purely as an always-current
+# mirror of upstream. Real engine-version plugin work happens on separate
+# branches (see enginehost's own README for the branch-per-engine-version
+# convention), each of which pulls from master on its own deliberate
+# schedule rather than being auto-merged here -- rebasing a patched branch
+# unattended risks a silent, wrong conflict resolution, so that step stays
+# manual by design.
+
+on:
+  schedule:
+    # Once a day is plenty for an upstream this size -- not chasing every commit in real time.
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fast-forward master to upstream
+        run: |
+          git remote add upstream https://github.com/renpy/renpy.git
+          git fetch upstream master
+          # --ff-only is the real safety net here: master is meant to be a
+          # pure mirror, so any history divergence (which shouldn't happen
+          # since nothing ever commits to it directly) should fail loudly
+          # rather than get silently resolved by a merge commit.
+          git merge --ff-only upstream/master
+          git push origin master

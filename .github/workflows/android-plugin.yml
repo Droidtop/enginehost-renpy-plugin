@@ -1,0 +1,61 @@
+name: Build enginehost Ren'Py Android plugin
+
+on:
+  push:
+    branches: ["plugin/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Read pinned runtime
+        id: runtime
+        run: |
+          echo "runtime=$(jq -r .runtime enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "release=$(jq -r .release enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "package=$(jq -r .package enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+      - name: Restore official matching SDK and RAPT
+        run: |
+          release='${{ steps.runtime.outputs.release }}'
+          mkdir -p .ci
+          curl --fail --location --retry 3 --output .ci/sdk.zip \
+            "https://www.renpy.org/dl/$release/renpy-$release-sdk.zip"
+          curl --fail --location --retry 3 --output .ci/rapt.zip \
+            "https://www.renpy.org/dl/$release/renpy-$release-rapt.zip"
+          unzip -q .ci/sdk.zip -d .ci
+          unzip -q .ci/rapt.zip -d ".ci/renpy-$release-sdk"
+      - name: Apply this branch's engine and Android wrapper
+        run: |
+          release='${{ steps.runtime.outputs.release }}'
+          sdk=".ci/renpy-$release-sdk"
+          cp -R renpy/. "$sdk/renpy/"
+          python3 enginehost/apply_android_integration.py "$sdk" \
+            '${{ steps.runtime.outputs.runtime }}' '${{ steps.runtime.outputs.package }}'
+          printf '%s\n' "$ANDROID_HOME" > "$sdk/rapt/sdk.txt"
+          keytool -genkeypair -noprompt -keystore enginehost/template/android.keystore \
+            -storepass android -keypass android -alias android -keyalg RSA \
+            -keysize 2048 -validity 10000 -dname "CN=enginehost CI"
+          cp enginehost/template/android.keystore enginehost/template/bundle.keystore
+      - name: Build through this runtime's official RAPT
+        run: |
+          release='${{ steps.runtime.outputs.release }}'
+          mkdir -p dist
+          cd ".ci/renpy-$release-sdk"
+          ./renpy.sh launcher android_build "$GITHUB_WORKSPACE/enginehost/template" \
+            --destination "$GITHUB_WORKSPACE/dist"
+          test -n "$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*.apk' -print -quit)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enginehost-renpy-${{ steps.runtime.outputs.runtime }}-android-plugin
+          path: dist/*.apk
+          if-no-files-found: error

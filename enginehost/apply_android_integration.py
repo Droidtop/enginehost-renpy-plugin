@@ -10,6 +10,7 @@ from pathlib import Path
 sdk = Path(sys.argv[1]).resolve()
 runtime = sys.argv[2]
 package = sys.argv[3]
+plugin_version = sys.argv[4]
 root = Path(__file__).resolve().parent
 
 java_dir = sdk / "rapt/prototype/renpyandroid/src/main/java/org/renpy/android"
@@ -75,4 +76,11 @@ project = root / "template"
 android_json = json.loads((project / "android.json").read_text(encoding="utf-8"))
 android_json["package"] = package
 android_json["name"] = f"enginehost Ren'Py {runtime}"
+android_json["version"] = plugin_version
 (project / "android.json").write_text(json.dumps(android_json, indent=2) + "\n", encoding="utf-8")
+
+options = project / "game/options.rpy"
+source = options.read_text(encoding="utf-8")
+source = source.replace('define config.version = "0.1.0"', f'define config.version = "{plugin_version}"')
+source = source.replace('build.version = "0.1.0"', f'build.version = "{plugin_version}"')
+options.write_text(source, encoding="utf-8")

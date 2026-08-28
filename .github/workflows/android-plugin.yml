@@ -24,6 +24,7 @@ jobs:
           echo "runtime=$(jq -r .runtime enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "release=$(jq -r .release enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "package=$(jq -r .package enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "plugin_version=$(jq -r .pluginVersion enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
       - name: Restore official matching SDK and RAPT
         run: |
           release='${{ steps.runtime.outputs.release }}'
@@ -40,7 +41,8 @@ jobs:
           sdk=".ci/renpy-$release-sdk"
           cp -R renpy/. "$sdk/renpy/"
           python3 enginehost/apply_android_integration.py "$sdk" \
-            '${{ steps.runtime.outputs.runtime }}' '${{ steps.runtime.outputs.package }}'
+            '${{ steps.runtime.outputs.runtime }}' '${{ steps.runtime.outputs.package }}' \
+            '${{ steps.runtime.outputs.plugin_version }}'
           printf '%s\n' "$ANDROID_HOME" > "$sdk/rapt/sdk.txt"
           keytool -genkeypair -noprompt -keystore enginehost/template/android.keystore \
             -storepass android -keypass android -alias android -keyalg RSA \

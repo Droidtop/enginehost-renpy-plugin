@@ -28,6 +28,30 @@ if "dev.enginehost.runtime.RESOURCE_PACKAGE" not in resource_source:
     resource_manager.write_text(
         resource_source.replace(resource_anchor, resource_replacement, 1), encoding="utf-8")
 
+# A loaded resource APK can share package id 0x7f with Enginehost. Android then
+# exposes its assets but may not resolve its string resources by name. RAPT only
+# uses private_version to decide whether private.mp3 needs extracting, so bind
+# that value to this signed plugin build instead of depending on package ids.
+resource_source = resource_manager.read_text(encoding="utf-8")
+version_anchor = '''    public String getString(String name) {
+
+        try {
+'''
+version_replacement = f'''    public String getString(String name) {{
+
+        if ("private_version".equals(name) &&
+                act.getIntent().hasExtra("dev.enginehost.runtime.RESOURCE_APKS")) {{
+            return "{plugin_version}";
+        }}
+
+        try {{
+'''
+if "dev.enginehost.runtime.RESOURCE_APKS" not in resource_source:
+    if version_anchor not in resource_source:
+        raise SystemExit("RAPT ResourceManager version anchor changed")
+    resource_manager.write_text(
+        resource_source.replace(version_anchor, version_replacement, 1), encoding="utf-8")
+
 activity = java_dir / "PythonSDLActivity.java"
 source = activity.read_text(encoding="utf-8")
 if "ENGINEHOST_RESOURCE_APKS" not in source:

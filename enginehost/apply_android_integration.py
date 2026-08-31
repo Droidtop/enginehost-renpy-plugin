@@ -16,6 +16,56 @@ root = Path(__file__).resolve().parent
 java_dir = sdk / "rapt/prototype/renpyandroid/src/main/java/org/renpy/android"
 activity = java_dir / "PythonSDLActivity.java"
 source = activity.read_text(encoding="utf-8")
+if "ENGINEHOST_RESOURCE_APKS" not in source:
+    source = source.replace(
+        "import android.os.VibrationEffect;\n",
+        """import android.os.VibrationEffect;
+import android.os.ParcelFileDescriptor;
+import android.content.res.loader.ResourcesLoader;
+import android.content.res.loader.ResourcesProvider;
+""",
+        1,
+    )
+    marker = '''    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        Log.v("python", "onCreate()");
+'''
+    replacement = '''    // ENGINEHOST_RESOURCE_APKS: attach the signed RAPT resource APK before SDL
+    // asks AssetManager to unpack Python and Ren'Py runtime files.
+    private void attachEnginehostResources() {
+        java.util.ArrayList<String> paths = getIntent().getStringArrayListExtra(
+            "dev.enginehost.runtime.RESOURCE_APKS");
+        if (paths == null) return;
+        for (String path : paths) {
+            try {
+                if (Build.VERSION.SDK_INT >= 30) {
+                    ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(
+                        new File(path), ParcelFileDescriptor.MODE_READ_ONLY);
+                    ResourcesProvider provider = ResourcesProvider.loadFromApk(descriptor);
+                    ResourcesLoader loader = new ResourcesLoader();
+                    loader.addProvider(provider);
+                    getResources().addLoaders(loader);
+                } else {
+                    java.lang.reflect.Method method = getAssets().getClass().getMethod(
+                        "addAssetPath", String.class);
+                    if (((Integer) method.invoke(getAssets(), path)) == 0) {
+                        throw new IllegalStateException("could not attach " + path);
+                    }
+                }
+            } catch (Exception e) {
+                throw new IllegalStateException("Could not attach Enginehost runtime resources", e);
+            }
+        }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        attachEnginehostResources();
+        Log.v("python", "onCreate()");
+'''
+    if marker not in source:
+        raise SystemExit("RAPT resource attachment anchor changed")
+    source = source.replace(marker, replacement, 1)
 anchor = '        nativeSetEnv("ANDROID_OLD_PUBLIC", oldExternalStorage.getAbsolutePath());\n'
 addition = '''
 

@@ -28,6 +28,14 @@ addition = '''
             nativeSetEnv("ENGINEHOST_GAME_PATH", enginehostGameFolder.getAbsolutePath());
             String enginehostOptions = getIntent().getStringExtra("options");
             if (enginehostOptions != null) nativeSetEnv("ENGINEHOST_OPTIONS_JSON", enginehostOptions);
+            String enginehostSavePath = getIntent().getStringExtra("dev.enginehost.runtime.SAVE_PATH");
+            if (enginehostSavePath != null) {
+                File enginehostSaveFolder = new File(enginehostSavePath);
+                if (!enginehostSaveFolder.isDirectory() && !enginehostSaveFolder.mkdirs()) {
+                    throw new IllegalArgumentException("enginehost save path is not writable: " + enginehostSavePath);
+                }
+                nativeSetEnv("ENGINEHOST_SAVE_PATH", enginehostSaveFolder.getAbsolutePath());
+            }
         }
 '''
 if "ENGINEHOST_GAME_PATH" not in source:

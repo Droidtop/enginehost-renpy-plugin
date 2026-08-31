@@ -124,6 +124,18 @@ def path_to_saves(gamedir, save_directory=None): # type: (str, str|None) -> str
 
     # Android.
     if renpy.android:
+        enginehost_save_path = os.environ.get("ENGINEHOST_SAVE_PATH")
+        if enginehost_save_path:
+            # Preserve Ren'Py's own game identity below Enginehost's shared
+            # root. config.save_directory is the same name desktop Ren'Py
+            # uses under its common "Ren'Py Data" directory.
+            game_save_directory = save_directory or os.path.basename(os.path.dirname(gamedir))
+            rv = os.path.join(enginehost_save_path, game_save_directory)
+            if not os.path.isdir(rv):
+                os.makedirs(rv)
+            print("Saving to", rv)
+            return rv
+
         paths = [
             os.path.join(os.environ["ANDROID_OLD_PUBLIC"], "game/saves"),
             os.path.join(os.environ["ANDROID_PRIVATE"], "saves"),

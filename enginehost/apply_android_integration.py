@@ -17,10 +17,10 @@ java_dir = sdk / "rapt/prototype/renpyandroid/src/main/java/org/renpy/android"
 resource_manager = java_dir / "ResourceManager.java"
 resource_source = resource_manager.read_text(encoding="utf-8")
 resource_anchor = '        return res.getIdentifier(name, kind, act.getPackageName());\n'
-resource_replacement = '''        String enginehostPackage = act.getIntent().getStringExtra(
+resource_replacement = f'''        String enginehostPackage = act.getIntent().getStringExtra(
             "dev.enginehost.runtime.RESOURCE_PACKAGE");
         return res.getIdentifier(name, kind,
-            enginehostPackage != null ? enginehostPackage : act.getPackageName());
+            enginehostPackage != null ? enginehostPackage : "{package}");
 '''
 if "dev.enginehost.runtime.RESOURCE_PACKAGE" not in resource_source:
     if resource_anchor not in resource_source:

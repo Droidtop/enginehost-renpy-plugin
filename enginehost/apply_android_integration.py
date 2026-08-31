@@ -47,9 +47,13 @@ import android.content.res.loader.ResourcesProvider;
     replacement = '''    // ENGINEHOST_RESOURCE_APKS: attach the signed RAPT resource APK before SDL
     // asks AssetManager to unpack Python and Ren'Py runtime files.
     private void attachEnginehostResources() {
+        Log.i("EnginehostRenPy", "Attaching runtime resources");
         java.util.ArrayList<String> paths = getIntent().getStringArrayListExtra(
             "dev.enginehost.runtime.RESOURCE_APKS");
-        if (paths == null) return;
+        if (paths == null) {
+            Log.e("EnginehostRenPy", "Runtime resource APK list is missing");
+            return;
+        }
         for (String path : paths) {
             try {
                 if (Build.VERSION.SDK_INT >= 30) {
@@ -59,6 +63,7 @@ import android.content.res.loader.ResourcesProvider;
                     ResourcesLoader loader = new ResourcesLoader();
                     loader.addProvider(provider);
                     getResources().addLoaders(loader);
+                    Log.i("EnginehostRenPy", "Attached runtime resource APK " + path);
                 } else {
                     java.lang.reflect.Method method = getAssets().getClass().getMethod(
                         "addAssetPath", String.class);
@@ -74,7 +79,9 @@ import android.content.res.loader.ResourcesProvider;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        Log.i("EnginehostRenPy", "PythonSDLActivity.onCreate class=" + getClass().getName());
         attachEnginehostResources();
+        Log.i("EnginehostRenPy", "Calling SDLActivity.onCreate");
         Log.v("python", "onCreate()");
 '''
     if marker not in source:

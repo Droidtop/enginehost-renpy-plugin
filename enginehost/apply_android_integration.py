@@ -137,14 +137,14 @@ source = source.replace(apk_anchor, apk_replacement, 1)
 anchor = '        nativeSetEnv("ANDROID_OLD_PUBLIC", oldExternalStorage.getAbsolutePath());\n'
 addition = '''
 
-        String enginehostGamePath = getIntent().getStringExtra("path");
+        String enginehostGamePath = getIntent().getStringExtra("dev.enginehost.runtime.PATH");
         if (enginehostGamePath != null) {
             File enginehostGameFolder = new File(enginehostGamePath);
             if (!enginehostGameFolder.isDirectory()) {
                 throw new IllegalArgumentException("enginehost path is not a directory: " + enginehostGamePath);
             }
             nativeSetEnv("ENGINEHOST_GAME_PATH", enginehostGameFolder.getAbsolutePath());
-            String enginehostOptions = getIntent().getStringExtra("options");
+            String enginehostOptions = getIntent().getStringExtra("dev.enginehost.runtime.CALLER_CONFIG");
             if (enginehostOptions != null) nativeSetEnv("ENGINEHOST_OPTIONS_JSON", enginehostOptions);
             String enginehostSavePath = getIntent().getStringExtra("dev.enginehost.runtime.SAVE_PATH");
             if (enginehostSavePath != null) {

@@ -14,6 +14,20 @@ plugin_version = sys.argv[4]
 root = Path(__file__).resolve().parent
 
 java_dir = sdk / "rapt/prototype/renpyandroid/src/main/java/org/renpy/android"
+resource_manager = java_dir / "ResourceManager.java"
+resource_source = resource_manager.read_text(encoding="utf-8")
+resource_anchor = '        return res.getIdentifier(name, kind, act.getPackageName());\n'
+resource_replacement = '''        String enginehostPackage = act.getIntent().getStringExtra(
+            "dev.enginehost.runtime.RESOURCE_PACKAGE");
+        return res.getIdentifier(name, kind,
+            enginehostPackage != null ? enginehostPackage : act.getPackageName());
+'''
+if "dev.enginehost.runtime.RESOURCE_PACKAGE" not in resource_source:
+    if resource_anchor not in resource_source:
+        raise SystemExit("RAPT ResourceManager integration anchor changed")
+    resource_manager.write_text(
+        resource_source.replace(resource_anchor, resource_replacement, 1), encoding="utf-8")
+
 activity = java_dir / "PythonSDLActivity.java"
 source = activity.read_text(encoding="utf-8")
 if "ENGINEHOST_RESOURCE_APKS" not in source:
@@ -66,6 +80,29 @@ import android.content.res.loader.ResourcesProvider;
     if marker not in source:
         raise SystemExit("RAPT resource attachment anchor changed")
     source = source.replace(marker, replacement, 1)
+apk_anchor = '''        try {
+            appInfo = packMgmr.getApplicationInfo(getPackageName(), 0);
+            apkFilePath = appInfo.sourceDir;
+        } catch (NameNotFoundException e) {
+            apkFilePath = "";
+        }
+'''
+apk_replacement = '''        java.util.ArrayList<String> enginehostResourceApks = getIntent().getStringArrayListExtra(
+            "dev.enginehost.runtime.RESOURCE_APKS");
+        if (enginehostResourceApks != null && !enginehostResourceApks.isEmpty()) {
+            apkFilePath = enginehostResourceApks.get(0);
+        } else {
+            try {
+                appInfo = packMgmr.getApplicationInfo(getPackageName(), 0);
+                apkFilePath = appInfo.sourceDir;
+            } catch (NameNotFoundException e) {
+                apkFilePath = "";
+            }
+        }
+'''
+if apk_anchor not in source:
+    raise SystemExit("RAPT APK path integration anchor changed")
+source = source.replace(apk_anchor, apk_replacement, 1)
 anchor = '        nativeSetEnv("ANDROID_OLD_PUBLIC", oldExternalStorage.getAbsolutePath());\n'
 addition = '''
 

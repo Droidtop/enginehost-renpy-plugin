@@ -687,25 +687,50 @@ def init():
 
     # Reuse locations when possible.
     if current := renpy.loadsave.location:
-        reusable = {fl.directory: fl for fl in current.locations}
+        reusable = {}
+        for fl in current.locations:
+            reusable[fl.directory] = fl
+            reusable[os.path.normcase(os.path.realpath(fl.directory))] = fl
     else:
         reusable = {}
 
+    added_locations = set()
+
     def location_add(d):
-        location.add(reusable.get(d, None) or FileLocation(d))
+        # The same directory can be named through the selected game root,
+        # config.gamedir, or config.extra_savedirs. Avoid scanning and writing
+        # it twice when those spellings resolve to the same place.
+        identity = os.path.normcase(os.path.realpath(d))
+        if identity in added_locations:
+            return
+        added_locations.add(identity)
+        location.add(reusable.get(d, None) or reusable.get(identity, None) or FileLocation(d))
 
     # 1. User savedir.
     location_add(renpy.config.savedir)
 
     # 2. Game-local savedir.
     # Enginehost runs the desktop game tree in place even though Ren'Py is on
-    # Android. Keep its existing game/saves directory in the read/write
-    # MultiLocation alongside the configured shared primary save directory.
-    # This preserves desktop saves without forcing an implicit migration.
+    # Android. Keep the normal <gamedir>/saves directory in the read/write
+    # MultiLocation alongside Enginehost's configured shared primary save
+    # directory. This mirrors desktop writes without an implicit migration.
     enginehost_game_path = os.environ.get("ENGINEHOST_GAME_PATH")
     if ((not renpy.mobile) and (not renpy.macapp)) or enginehost_game_path:
         path = os.path.join(renpy.config.gamedir, "saves")
         location_add(path)
+
+    if enginehost_game_path:
+        # A few distributed games and older Android wrappers used either of
+        # these game-root layouts. Treat an existing directory as another
+        # source and mirror future writes into it, but do not create a third
+        # save tree for games that have never used the legacy layout.
+        legacy_paths = [
+            os.path.join(enginehost_game_path, "saves"),
+            os.path.join(enginehost_game_path, "game", "saves"),
+            ]
+        for path in legacy_paths:
+            if os.path.isdir(path):
+                location_add(path)
 
     # 3. Extra savedirs.
     for i in renpy.config.extra_savedirs:

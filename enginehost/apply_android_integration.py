@@ -55,9 +55,18 @@ if "dev.enginehost.runtime.RESOURCE_APKS" not in resource_source:
 activity = java_dir / "PythonSDLActivity.java"
 source = activity.read_text(encoding="utf-8")
 if "ENGINEHOST_RESOURCE_APKS" not in source:
+    # Anchor on an import every supported RAPT has. VibrationEffect was the
+    # old anchor and 8.1's RAPT does not import it, so the replace quietly
+    # did nothing while the code below still went in, and the build failed
+    # much later saying it could not find ParcelFileDescriptor. Vibrator is
+    # present in every RAPT this wrapper targets. Check it, so a future move
+    # fails here and says so rather than as a mystery symbol error.
+    import_anchor = "import android.os.Vibrator;\n"
+    if import_anchor not in source:
+        raise SystemExit("RAPT PythonSDLActivity import anchor changed")
     source = source.replace(
-        "import android.os.VibrationEffect;\n",
-        """import android.os.VibrationEffect;
+        import_anchor,
+        """import android.os.Vibrator;
 import android.os.ParcelFileDescriptor;
 import android.content.res.loader.ResourcesLoader;
 import android.content.res.loader.ResourcesProvider;

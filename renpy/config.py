@@ -1183,6 +1183,11 @@ log_gl_extensions = False
 # Should GL shaders be logged to log.txt
 log_gl_shaders = False
 
+# The GLSL dialect shader parts are written in when they don't pass glsl to
+# renpy.register_shader. 300 selects GLSL ES 3.00 and 100 selects GLSL ES
+# 1.00. Games declaring compatibility with 8.5 or earlier get 100.
+glsl_version = 300
+
 # OpenGL Blend Funcs
 gl_blend_func = {}
 
@@ -1700,6 +1705,12 @@ after_init_callbacks: list[Callable[[], None]] = []
 """
 A list of callbacks that are called at the very end of the init phase, before the game starts normal execution for the
 first time. These are run just after defaults are set up, but only once, and before script statements are run.
+"""
+
+minimum_prediction_time: float = 0.001
+"""
+The minimum amount of time Ren'Py will spend on predicting images even if there is a
+frame to be drawn.
 """
 
 

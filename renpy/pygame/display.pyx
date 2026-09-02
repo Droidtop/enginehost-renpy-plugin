@@ -267,6 +267,8 @@ cdef class Window:
         if self.gl_context != NULL:
             SDL_GL_DestroyContext(self.gl_context)
 
+            self.gl_context = NULL
+
         if self.surface:
 
             # Break the cycle that prevents refcounting from collecting this
@@ -276,7 +278,11 @@ cdef class Window:
             # Necessary to collect the GL surface, doesn't hurt the window surface.
             self.surface = None
 
-        SDL_DestroyWindow(self.window)
+        # Cleared so that SDL never ends up with a dangling pointer.
+        if self.window != NULL:
+            SDL_DestroyWindow(self.window)
+
+            self.window = NULL
 
     def resize(self, size, opengl=False, fullscreen=None, maximized=None):
         """
@@ -469,6 +475,8 @@ cdef class Window:
     def get_window_display_scale(self):
         return SDL_GetWindowDisplayScale(self.window)
 
+    def get_window_pixel_density(self):
+        return SDL_GetWindowPixelDensity(self.window)
 
     def get_size(self):
         cdef int w, h
@@ -526,6 +534,9 @@ def set_mode(resolution=(0, 0), flags=0, depth=0, pos=(SDL_WINDOWPOS_UNDEFINED, 
 
         else:
             main_window.destroy()
+
+            # Don't leave a destroyed window behind.
+            main_window = None
 
     main_window = Window(default_title, resolution, flags, depth, pos=pos)
 
@@ -805,6 +816,11 @@ def get_display_content_scale():
 def get_window_display_scale():
     if main_window:
         return main_window.get_window_display_scale()
+    return None
+
+def get_window_pixel_density():
+    if main_window:
+        return main_window.get_window_pixel_density()
     return None
 
 def get_size():

@@ -53,6 +53,12 @@ jobs:
             -storepass android -keypass android -alias android -keyalg RSA \
             -keysize 2048 -validity 10000 -dname "CN=enginehost CI"
           cp enginehost/template/android.keystore enginehost/template/bundle.keystore
+      - name: Install the NDK this RAPT pins
+        run: |
+          # RAPT 8.1.3 asks for NDK 21.3.6528147 by exact version. Runners
+          # ship 27 and newer, and AGP will not substitute a different one.
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;21.3.6528147' >/dev/null
+          test -d "$ANDROID_HOME/ndk/21.3.6528147"
       - name: Build through this runtime's official RAPT
         run: |
           release='${{ steps.runtime.outputs.release }}'

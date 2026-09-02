@@ -57,7 +57,15 @@ jobs:
         run: |
           # RAPT 8.1.3 asks for NDK 21.3.6528147 by exact version. Runners
           # ship 27 and newer, and AGP will not substitute a different one.
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;21.3.6528147' >/dev/null
+          # sdkmanager itself is built for Java 17+, but this job runs on
+          # Java 11 for RAPT's sake, so hand it a modern JDK for this call
+          # only. The build that follows still uses Java 11.
+          jdk="${JAVA_HOME_17_X64:-}"
+          [ -n "$jdk" ] || jdk=$(ls -d /opt/hostedtoolcache/Java_Temurin-Hotspot_jdk/1[78]*/x64 2>/dev/null | head -1)
+          [ -n "$jdk" ] || jdk=$(ls -d /usr/lib/jvm/*-17-* /usr/lib/jvm/*17* 2>/dev/null | head -1)
+          test -n "$jdk"
+          echo "using $jdk to run sdkmanager"
+          yes | JAVA_HOME="$jdk" "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install 'ndk;21.3.6528147' >/dev/null
           test -d "$ANDROID_HOME/ndk/21.3.6528147"
       - name: Build through this runtime's official RAPT
         run: |

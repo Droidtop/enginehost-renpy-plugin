@@ -82,6 +82,24 @@ jobs:
             .capabilities[0].supportedSeries = [$series] |
             .source.revision = ("plugin/" + $series)
           ' enginehost/bundle-metadata.json > build/bundle-metadata.json
+          # Ren'Py 8.5's APK is multidex where 8.2 and 8.3 were not, and
+          # enginehost class-loads exactly the dex files this manifest
+          # declares. A hard-coded single entry would ship the rest inside
+          # the signed payload and never load them.
+          python3 - <<'DEXES'
+          import json, pathlib, re
+          payload = pathlib.Path('build/payload')
+          def order(p):
+              m = re.fullmatch(r'classes(\d*)\.dex', p.name)
+              return int(m.group(1) or 1)
+          dexes = sorted(payload.glob('classes*.dex'), key=order)
+          assert dexes, 'no classes*.dex in the APK payload'
+          meta = pathlib.Path('build/bundle-metadata.json')
+          data = json.loads(meta.read_text())
+          data['dexFiles'] = [d.name for d in dexes]
+          meta.write_text(json.dumps(data, indent=2) + '\n')
+          print('dexFiles =', data['dexFiles'])
+          DEXES
           printf '%s' "$ENGINEHOST_SIGNING_KEY_PEM" > build/signing-key.pem
           python3 enginehost-tooling/scripts/build-engine-bundle.py \
             --metadata build/bundle-metadata.json --payload build/payload \

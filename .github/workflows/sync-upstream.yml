@@ -1,21 +1,25 @@
 name: Sync master with upstream renpy/renpy
 
-# master carries no local patches -- it exists purely as an always-current
-# mirror of upstream. Real engine-version plugin work happens on separate
-# branches (see enginehost's own README for the branch-per-engine-version
-# convention), each of which pulls from master on its own deliberate
-# schedule rather than being auto-merged here -- rebasing a patched branch
-# unattended risks a silent, wrong conflict resolution, so that step stays
-# manual by design.
+# master exists purely as an always-current mirror of upstream renpy/renpy.
+# Real engine-version plugin work happens on separate branches (see
+# enginehost's own README for the branch-per-engine-version convention),
+# each of which pulls from master on its own deliberate schedule rather
+# than being auto-merged here: rebasing a patched branch unattended risks
+# a silent, wrong conflict resolution, so that step stays manual by design.
 
 on:
   schedule:
-    # Once a day is plenty for an upstream this size -- not chasing every commit in real time.
+    # Once a day is plenty for an upstream this size, we are not chasing
+    # every commit in real time.
     - cron: "17 4 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
 
 jobs:
   sync:
@@ -28,13 +32,33 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fast-forward master to upstream
+      - name: Sync master with upstream
         run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/renpy/renpy.git
           git fetch upstream master
-          # --ff-only is the real safety net here: master is meant to be a
-          # pure mirror, so any history divergence (which shouldn't happen
-          # since nothing ever commits to it directly) should fail loudly
-          # rather than get silently resolved by a merge commit.
-          git merge --ff-only upstream/master
+
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo "master already contains upstream/master, nothing to do."
+            exit 0
+          fi
+
+          # This job used to run "git merge --ff-only" on the theory that
+          # master is a byte-for-byte mirror and so should never diverge.
+          # It cannot be: this workflow file itself only takes effect on
+          # the branch it lives on, and it lives on master, which puts one
+          # commit on master that upstream will never have. --ff-only
+          # therefore failed on every single run since the job was added,
+          # emailing a failure a day while never once syncing anything.
+          #
+          # A plain merge is the honest version of the same intent. The
+          # only path that ever differs from upstream is
+          # .github/workflows/, which upstream renpy/renpy does not carry,
+          # so the merge is a clean fast-forward of every real source file.
+          # A genuine conflict still fails the job loudly, which is the
+          # signal we actually wanted: someone committed engine changes to
+          # the mirror branch and they belong on a plugin/* branch instead.
+          git merge --no-edit upstream/master
           git push origin master

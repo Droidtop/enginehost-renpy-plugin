@@ -170,6 +170,23 @@ if "ENGINEHOST_GAME_PATH" not in source:
         raise SystemExit("RAPT PythonSDLActivity integration anchor changed")
     activity.write_text(source.replace(anchor, anchor + addition, 1), encoding="utf-8")
 
+# Enginehost attaches this APK's resources to the host's own Resources
+# object and refuses a bundle compiled at 0x7f, the host's own id, because
+# the host's table would win every lookup. RAPT generates app/build.gradle
+# from this template; compile the plugin's resources where the host will
+# never be, as the Godot bundle does.
+gradle = sdk / "rapt/templates/app-build.gradle"
+source = gradle.read_text(encoding="utf-8")
+gradle_anchor = "android {\n"
+assert source.count(gradle_anchor) == 1, "RAPT app-build.gradle template changed shape"
+if "allow-reserved-package-id" not in source:
+    package_id_block = (
+        "    aaptOptions {\n"
+        "        additionalParameters \"--package-id\", \"0x80\", \"--allow-reserved-package-id\"\n"
+        "    }\n"
+    )
+    gradle.write_text(source.replace(gradle_anchor, gradle_anchor + package_id_block, 1), encoding="utf-8")
+
 res = sdk / "rapt/prototype/app/src/main/res"
 for directory in (root / "android/res").iterdir():
     shutil.copytree(directory, res / directory.name, dirs_exist_ok=True)

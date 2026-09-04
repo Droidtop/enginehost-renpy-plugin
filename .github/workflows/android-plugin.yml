@@ -75,6 +75,11 @@ jobs:
           export PATH="$JAVA_HOME/bin:$PATH"
           java -version 2>&1 | head -1
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install             "platforms;android-${{ steps.runtime.outputs.platform }}"             "build-tools;${{ steps.runtime.outputs.build_tools }}"             ${{ steps.runtime.outputs.ndk && format('"ndk;{0}"', steps.runtime.outputs.ndk) }} >/dev/null
+          # Today's sdkmanager writes package.xml entries (extension levels) that
+          # the 2018 Android Gradle plugin's schema rejects outright; drop them.
+          for f in "$ANDROID_HOME/platforms/android-${{ steps.runtime.outputs.platform }}/package.xml"                    "$ANDROID_HOME/build-tools/${{ steps.runtime.outputs.build_tools }}/package.xml"; do
+            [ -f "$f" ] && sed -i 's#<base-extension[^>]*/>##g; s#<extension-level>[^<]*</extension-level>##g' "$f"
+          done
           # Ren'Py 7.3's launcher opens a window to dump the project before it
           # builds; the runner has no display, so give it one.
           sudo apt-get install -y -qq xvfb >/dev/null

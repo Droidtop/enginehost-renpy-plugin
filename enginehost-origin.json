@@ -1,0 +1,14 @@
+{
+  "description": "Enginehost plugin implementation repository for Ren'Py",
+  "engine": "renpy",
+  "engineContexts": [
+    "standard"
+  ],
+  "formatVersion": 1,
+  "implementation": {
+    "id": "renpy",
+    "name": "Ren'Py",
+    "upstream": "https://github.com/renpy/renpy"
+  },
+  "origin": "https://github.com/droidtop/enginehost-renpy-plugin"
+}

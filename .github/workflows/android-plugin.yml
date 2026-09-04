@@ -120,6 +120,23 @@ jobs:
             -storepass android -keypass android -alias android -keyalg RSA \
             -keysize 2048 -validity 10000 -dname "CN=enginehost CI"
           cp enginehost/template/android.keystore enginehost/template/bundle.keystore
+          if [ -n '${{ steps.runtime.outputs.platform }}' ]; then
+            # RAPT before 7.6 expects its "Install SDK" step to have created the
+            # Gradle project and written the SDK path and signing properties;
+            # 7.6 and later write them at build time. Lay them down here.
+            cp -R "$sdk/rapt/prototype/." "$sdk/rapt/project/"
+            cp enginehost/template/android.keystore "$sdk/rapt/android.keystore"
+            cp enginehost/template/android.keystore "$sdk/rapt/bundle.keystore"
+            for store in android bundle; do
+              file=local; [ "$store" = bundle ] && file=bundle
+              printf 'sdk.dir=%s
+key.alias=android
+key.store.password=android
+key.alias.password=android
+key.store=%s/rapt/%s.keystore
+'                 "$android_sdk" "$GITHUB_WORKSPACE/$sdk" "$store" > "$sdk/rapt/project/$file.properties"
+            done
+          fi
       - name: Build through this runtime's official RAPT
         run: |
           release='${{ steps.runtime.outputs.release }}'

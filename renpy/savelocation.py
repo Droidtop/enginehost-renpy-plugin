@@ -557,7 +557,10 @@ def init():
     location.add(FileLocation(renpy.config.savedir))
 
     # 2. Game-local savedir.
-    if (not renpy.mobile) and (not renpy.macapp):
+    # Enginehost runs the desktop game tree in place even though Ren'Py is on
+    # Android; keep the game's own saves folder among the save locations.
+    enginehost_game_path = os.environ.get("ENGINEHOST_GAME_PATH")
+    if ((not renpy.mobile) and (not renpy.macapp)) or enginehost_game_path:
         path = os.path.join(renpy.config.gamedir, "saves")
         location.add(FileLocation(path))
 

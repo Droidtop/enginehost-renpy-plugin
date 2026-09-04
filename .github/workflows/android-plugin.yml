@@ -129,12 +129,13 @@ jobs:
             cp enginehost/template/android.keystore "$sdk/rapt/bundle.keystore"
             for store in android bundle; do
               file=local; [ "$store" = bundle ] && file=bundle
-              printf 'sdk.dir=%s
-key.alias=android
-key.store.password=android
-key.alias.password=android
-key.store=%s/rapt/%s.keystore
-'                 "$android_sdk" "$GITHUB_WORKSPACE/$sdk" "$store" > "$sdk/rapt/project/$file.properties"
+              {
+                echo "sdk.dir=$android_sdk"
+                echo key.alias=android
+                echo key.store.password=android
+                echo key.alias.password=android
+                echo "key.store=$GITHUB_WORKSPACE/$sdk/rapt/$store.keystore"
+              } > "$sdk/rapt/project/$file.properties"
             done
           fi
       - name: Build through this runtime's official RAPT

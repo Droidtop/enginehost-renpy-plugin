@@ -4,7 +4,7 @@
   "package": "dev.enginehost.plugin.renpy.py2.v7_3.slot1",
   "pluginVersion": "0.1",
   "java": 11,
-  "platform": 28,
+  "platform": 30,
   "buildTools": "28.0.3",
   "buildCommand": "assembleRelease"
 }

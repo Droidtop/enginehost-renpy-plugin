@@ -209,6 +209,24 @@ for build_file in (sdk / "rapt/prototype/build.gradle", sdk / "rapt/templates/bu
         if "jcenter()" in source and "mavenCentral()" not in source:
             build_file.write_text(source.replace("jcenter()", "mavenCentral()\n        jcenter()"), encoding="utf-8")
 
+# Ren'Py 7.3's RAPT builds with the 2018 Android Gradle plugin, whose AAPT2
+# has no --allow-reserved-package-id: it cannot compile this plugin's
+# resources anywhere but 0x7f, the one id Enginehost refuses. Give that line
+# the plugin and Gradle versions 7.4's own RAPT ships, which do support it.
+prototype_gradle = sdk / "rapt/prototype/build.gradle"
+if prototype_gradle.is_file():
+    source = prototype_gradle.read_text(encoding="utf-8")
+    if "com.android.tools.build:gradle:3." in source:
+        import re as _re
+        prototype_gradle.write_text(
+            _re.sub(r"com\.android\.tools\.build:gradle:3\.[0-9.]+", "com.android.tools.build:gradle:4.0.1", source),
+            encoding="utf-8")
+        wrapper = sdk / "rapt/prototype/gradle/wrapper/gradle-wrapper.properties"
+        if wrapper.is_file():
+            wrapper.write_text(
+                _re.sub(r"gradle-[0-9.]+-(all|bin)\.zip", "gradle-6.1.1-all.zip", wrapper.read_text(encoding="utf-8")),
+                encoding="utf-8")
+
 gradle = sdk / "rapt/templates/app-build.gradle"
 source = gradle.read_text(encoding="utf-8")
 gradle_anchor = "android {\n"

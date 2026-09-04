@@ -3,5 +3,7 @@
   "release": "7.5.3",
   "package": "dev.enginehost.plugin.renpy.py2.v7_5.slot1",
   "pluginVersion": "0.1",
-  "java": 11
+  "java": 11,
+  "platform": 31,
+  "buildTools": "30.0.3"
 }

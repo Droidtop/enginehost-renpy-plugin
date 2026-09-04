@@ -231,12 +231,25 @@ if prototype_gradle.is_file():
 # in API 30; the code is guarded at runtime but still has to compile. RAPTs
 # older than that compile against 28, so raise just the compile target. The
 # minimum stays where the line put it.
+raised_compile_target = False
 for old_gradle in (sdk / "rapt/prototype/renpyandroid/build.gradle", sdk / "rapt/templates/app-build.gradle"):
     if old_gradle.is_file():
         source = old_gradle.read_text(encoding="utf-8")
         replaced = _re.sub(r"compileSdkVersion 2[0-9]", "compileSdkVersion 30", source)
         if replaced != source:
             old_gradle.write_text(replaced, encoding="utf-8")
+            raised_compile_target = True
+
+# A 2019 lint reading a 2020 platform finds problems in Ren'Py's own Android
+# project that have nothing to do with this build, and by default that fails
+# the release. The build is a means to a signed bundle here, not a review of
+# upstream.
+if raised_compile_target:
+    app_gradle = sdk / "rapt/templates/app-build.gradle"
+    source = app_gradle.read_text(encoding="utf-8")
+    if "checkReleaseBuilds" not in source:
+        lint = "    lintOptions {" + chr(10) + "        checkReleaseBuilds false" + chr(10) + "        abortOnError false" + chr(10) + "    }" + chr(10)
+        app_gradle.write_text(source.replace("android {" + chr(10), "android {" + chr(10) + lint, 1), encoding="utf-8")
 
 gradle = sdk / "rapt/templates/app-build.gradle"
 source = gradle.read_text(encoding="utf-8")

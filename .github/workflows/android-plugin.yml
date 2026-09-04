@@ -97,8 +97,7 @@ jobs:
             ln -s "$ANDROID_HOME/platforms/android-$platform" "$android_sdk/platforms/android-$platform"
             ln -s "$ANDROID_HOME/build-tools/$build_tools" "$android_sdk/build-tools/$build_tools"
           fi
-          printf '%s
-' "$android_sdk" > "$sdk/rapt/sdk.txt"
+          printf '%s' "$android_sdk" > "$sdk/rapt/sdk.txt"
           # RAPT before 7.6 reads the project's settings from .android.json.
           cp enginehost/template/android.json enginehost/template/.android.json
           keytool -genkeypair -noprompt -keystore enginehost/template/android.keystore \

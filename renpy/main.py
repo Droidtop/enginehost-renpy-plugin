@@ -469,6 +469,16 @@ def main():
     renpy.game.exception_info = 'After loading the script.'
 
     # Find the save directory.
+    # Enginehost gives each engine one save folder, chosen by the person and
+    # handed to the runtime as ENGINEHOST_SAVE_PATH. Ren'Py names the game's
+    # own directory inside it exactly as it does on the desktop, so saves are
+    # reachable, survive an uninstall, and can be copied between devices.
+    enginehost_save_path = os.environ.get("ENGINEHOST_SAVE_PATH")
+    if enginehost_save_path:
+        game_directory = renpy.config.save_directory or os.path.basename(
+            os.path.dirname(renpy.config.gamedir.rstrip("/")))
+        renpy.config.savedir = os.path.join(enginehost_save_path, game_directory)
+
     if renpy.config.savedir is None:
         renpy.config.savedir = renpy.__main__.path_to_saves(renpy.config.gamedir) # E1101 @UndefinedVariable
 

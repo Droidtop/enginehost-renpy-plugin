@@ -513,6 +513,12 @@ def main():
         game_directory = renpy.config.save_directory or os.path.basename(
             os.path.dirname(renpy.config.gamedir.rstrip("/")))
         renpy.config.savedir = os.path.join(enginehost_save_path, game_directory)
+    elif os.environ.get("ENGINEHOST_GAME_PATH"):
+        # Under Enginehost, never fall back to Android's app-private folder:
+        # RAPT assumed one game per app, so every game would share the same
+        # slots and persistent data there. Save beside the game instead,
+        # where Ren'Py already reads and writes.
+        renpy.config.savedir = os.path.join(renpy.config.gamedir, "saves")
 
     if renpy.config.savedir is None:
         renpy.config.savedir = __main__.path_to_saves(renpy.config.gamedir) # E1101 @UndefinedVariable

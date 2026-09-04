@@ -503,6 +503,9 @@ def main():
     if renpy.config.savedir is None:
         renpy.config.savedir = renpy.__main__.path_to_saves(renpy.config.gamedir) # E1101 @UndefinedVariable
 
+    renpy.display.log.write("Enginehost save path: %r; game path: %r; savedir: %r",
+        enginehost_save_path, os.environ.get("ENGINEHOST_GAME_PATH"), renpy.config.savedir)
+
     if renpy.game.args.savedir: # type: ignore
         renpy.config.savedir = renpy.game.args.savedir # type: ignore
 

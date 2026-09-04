@@ -46,17 +46,20 @@ jobs:
           repository: Droidtop/enginehost
           ref: codex/engine-bundles
           path: enginehost-tooling
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 21
       - name: Read pinned runtime
         id: runtime
         run: |
           echo "runtime=$(jq -r .runtime enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          # The JDK the line's RAPT can build with: Gradle 4.4 (7.3) wants 8,
+          # Gradle 6.1 (7.4 to 7.6) wants 11, newer RAPTs take 21.
+          echo "java=$(jq -r '.java // 21' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "release=$(jq -r .release enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "package=$(jq -r .package enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "plugin_version=$(jq -r .pluginVersion enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ steps.runtime.outputs.java }}
       - name: Restore official matching SDK and RAPT
         run: |
           release='${{ steps.runtime.outputs.release }}'
@@ -76,6 +79,8 @@ jobs:
             '${{ steps.runtime.outputs.runtime }}' '${{ steps.runtime.outputs.package }}' \
             '${{ steps.runtime.outputs.plugin_version }}'
           printf '%s\n' "$ANDROID_HOME" > "$sdk/rapt/sdk.txt"
+          # RAPT before 7.6 reads the project's settings from .android.json.
+          cp enginehost/template/android.json enginehost/template/.android.json
           keytool -genkeypair -noprompt -keystore enginehost/template/android.keystore \
             -storepass android -keypass android -alias android -keyalg RSA \
             -keysize 2048 -validity 10000 -dname "CN=enginehost CI"

@@ -1,0 +1,33 @@
+{
+  "bundleId": "dev.enginehost.renpy.VERSION_LINE.v1",
+  "engine": "renpy",
+  "pluginVersion": "0.1",
+  "apiVersion": 1,
+  "entrypoint": "org.renpy.android.PythonSDLActivity",
+  "runtimeTransport": "android-activity",
+  "origin": "https://github.com/droidtop/enginehost-renpy-plugin",
+  "dexFiles": [
+    "classes.dex"
+  ],
+  "resourceApks": [
+    "runtime.apk"
+  ],
+  "capabilities": [
+    {
+      "id": "renpy-VERSION_LINE-v1",
+      "engineContext": "standard",
+      "runtimeVersion": "RUNTIME_VERSION",
+      "supportedSeries": [
+        "VERSION_SERIES"
+      ]
+    }
+  ],
+  "source": {
+    "upstream": "https://github.com/renpy/renpy",
+    "revision": "plugin/VERSION_SERIES"
+  },
+  "licenses": [
+    "MIT",
+    "Ren'Py and RAPT bundled notices"
+  ]
+}

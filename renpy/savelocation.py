@@ -644,7 +644,10 @@ def init():
     enginehost_game_path = os.environ.get("ENGINEHOST_GAME_PATH")
     if ((not renpy.mobile) and (not renpy.macapp)) or enginehost_game_path:
         path = os.path.join(renpy.config.gamedir, "saves")
-        location.add(FileLocation(path))
+        # The primary save directory may already be this folder; one location
+        # per folder, or every save would be written and listed twice.
+        if os.path.abspath(path) != os.path.abspath(renpy.config.savedir):
+            location.add(FileLocation(path))
 
     # 3. Extra savedirs.
     for i in renpy.config.extra_savedirs:

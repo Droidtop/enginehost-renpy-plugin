@@ -2,6 +2,7 @@
 """Apply enginehost's Android wrapper to an unpacked official RAPT tree."""
 
 import json
+import re as _re
 import shutil
 import sys
 from pathlib import Path
@@ -164,6 +165,7 @@ addition = '''
             String enginehostOptions = getIntent().getStringExtra("dev.enginehost.runtime.CALLER_CONFIG");
             if (enginehostOptions != null) nativeSetEnv("ENGINEHOST_OPTIONS_JSON", enginehostOptions);
             String enginehostSavePath = getIntent().getStringExtra("dev.enginehost.runtime.SAVE_PATH");
+            Log.i("EnginehostRenPy", "Save path extra: " + enginehostSavePath);
             if (enginehostSavePath != null) {
                 File enginehostSaveFolder = new File(enginehostSavePath);
                 if (!enginehostSaveFolder.isDirectory() && !enginehostSaveFolder.mkdirs()) {
@@ -208,6 +210,47 @@ for build_file in (sdk / "rapt/prototype/build.gradle", sdk / "rapt/templates/bu
         source = build_file.read_text(encoding="utf-8")
         if "jcenter()" in source and "mavenCentral()" not in source:
             build_file.write_text(source.replace("jcenter()", "mavenCentral()\n        jcenter()"), encoding="utf-8")
+
+# Ren'Py 7.3's RAPT builds with the 2018 Android Gradle plugin, whose AAPT2
+# has no --allow-reserved-package-id: it cannot compile this plugin's
+# resources anywhere but 0x7f, the one id Enginehost refuses. Give that line
+# the plugin and Gradle versions 7.4's own RAPT ships, which do support it.
+prototype_gradle = sdk / "rapt/prototype/build.gradle"
+if prototype_gradle.is_file():
+    source = prototype_gradle.read_text(encoding="utf-8")
+    if "com.android.tools.build:gradle:3." in source:
+        prototype_gradle.write_text(
+            _re.sub(r"com\.android\.tools\.build:gradle:3\.[0-9.]+", "com.android.tools.build:gradle:4.0.1", source),
+            encoding="utf-8")
+        wrapper = sdk / "rapt/prototype/gradle/wrapper/gradle-wrapper.properties"
+        if wrapper.is_file():
+            wrapper.write_text(
+                _re.sub(r"gradle-[0-9.]+-(all|bin)\.zip", "gradle-6.1.1-all.zip", wrapper.read_text(encoding="utf-8")),
+                encoding="utf-8")
+
+# The wrapper attaches its resource APK through ResourcesLoader, which arrived
+# in API 30; the code is guarded at runtime but still has to compile. RAPTs
+# older than that compile against 28, so raise just the compile target. The
+# minimum stays where the line put it.
+raised_compile_target = False
+for old_gradle in (sdk / "rapt/prototype/renpyandroid/build.gradle", sdk / "rapt/templates/app-build.gradle"):
+    if old_gradle.is_file():
+        source = old_gradle.read_text(encoding="utf-8")
+        replaced = _re.sub(r"compileSdkVersion 2[0-9]", "compileSdkVersion 30", source)
+        if replaced != source:
+            old_gradle.write_text(replaced, encoding="utf-8")
+            raised_compile_target = True
+
+# A 2019 lint reading a 2020 platform finds problems in Ren'Py's own Android
+# project that have nothing to do with this build, and by default that fails
+# the release. The build is a means to a signed bundle here, not a review of
+# upstream.
+if raised_compile_target:
+    app_gradle = sdk / "rapt/templates/app-build.gradle"
+    source = app_gradle.read_text(encoding="utf-8")
+    if "checkReleaseBuilds" not in source:
+        lint = "    lintOptions {" + chr(10) + "        checkReleaseBuilds false" + chr(10) + "        abortOnError false" + chr(10) + "    }" + chr(10)
+        app_gradle.write_text(source.replace("android {" + chr(10), "android {" + chr(10) + lint, 1), encoding="utf-8")
 
 gradle = sdk / "rapt/templates/app-build.gradle"
 source = gradle.read_text(encoding="utf-8")

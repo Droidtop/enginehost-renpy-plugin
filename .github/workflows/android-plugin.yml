@@ -53,6 +53,11 @@ jobs:
           # The JDK the line's RAPT can build with: Gradle 4.4 (7.3) wants 8,
           # Gradle 6.1 (7.4 to 7.6) wants 11, newer RAPTs take 21.
           echo "java=$(jq -r '.java // 21' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          # Older RAPTs also need a slim SDK (platform and build-tools the template
+          # asks for) and, at 7.3, the Gradle task as a positional argument.
+          echo "platform=$(jq -r '.platform // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "build_tools=$(jq -r '.buildTools // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "build_command=$(jq -r '.buildCommand // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "release=$(jq -r .release enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "package=$(jq -r .package enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "plugin_version=$(jq -r .pluginVersion enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
@@ -78,7 +83,22 @@ jobs:
           python3 enginehost/apply_android_integration.py "$sdk" \
             '${{ steps.runtime.outputs.runtime }}' '${{ steps.runtime.outputs.package }}' \
             '${{ steps.runtime.outputs.plugin_version }}'
-          printf '%s\n' "$ANDROID_HOME" > "$sdk/rapt/sdk.txt"
+          android_sdk="$ANDROID_HOME"
+          if [ -n '${{ steps.runtime.outputs.platform }}' ]; then
+            # An Android Gradle plugin of this age cannot read the runner's modern
+            # SDK layout; give it a slim SDK holding only what its template asks for.
+            platform='${{ steps.runtime.outputs.platform }}'
+            build_tools='${{ steps.runtime.outputs.build_tools }}'
+            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-$platform" "build-tools;$build_tools" >/dev/null
+            android_sdk="$GITHUB_WORKSPACE/.ci/android-sdk"
+            mkdir -p "$android_sdk/platforms" "$android_sdk/build-tools"
+            ln -s "$ANDROID_HOME/platform-tools" "$android_sdk/platform-tools"
+            ln -s "$ANDROID_HOME/licenses" "$android_sdk/licenses"
+            ln -s "$ANDROID_HOME/platforms/android-$platform" "$android_sdk/platforms/android-$platform"
+            ln -s "$ANDROID_HOME/build-tools/$build_tools" "$android_sdk/build-tools/$build_tools"
+          fi
+          printf '%s
+' "$android_sdk" > "$sdk/rapt/sdk.txt"
           # RAPT before 7.6 reads the project's settings from .android.json.
           cp enginehost/template/android.json enginehost/template/.android.json
           keytool -genkeypair -noprompt -keystore enginehost/template/android.keystore \
@@ -90,7 +110,7 @@ jobs:
           release='${{ steps.runtime.outputs.release }}'
           mkdir -p dist
           cd ".ci/renpy-$release-sdk"
-          ./renpy.sh launcher android_build "$GITHUB_WORKSPACE/enginehost/template" \
+          ./renpy.sh launcher android_build "$GITHUB_WORKSPACE/enginehost/template" ${{ steps.runtime.outputs.build_command }} \
             --destination "$GITHUB_WORKSPACE/dist"
           test -n "$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*.apk' -print -quit)"
       - name: Build signed internal Enginehost bundle

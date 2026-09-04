@@ -65,6 +65,13 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ steps.runtime.outputs.java }}
+      - name: Install the SDK parts an older RAPT builds against
+        if: ${{ steps.runtime.outputs.platform != '' }}
+        env:
+          # sdkmanager itself needs a current JDK; the line's own JDK comes later.
+          JAVA_HOME: ${{ env.JAVA_HOME_21_X64 }}
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install             "platforms;android-${{ steps.runtime.outputs.platform }}"             "build-tools;${{ steps.runtime.outputs.build_tools }}" >/dev/null
       - name: Restore official matching SDK and RAPT
         run: |
           release='${{ steps.runtime.outputs.release }}'
@@ -89,7 +96,6 @@ jobs:
             # SDK layout; give it a slim SDK holding only what its template asks for.
             platform='${{ steps.runtime.outputs.platform }}'
             build_tools='${{ steps.runtime.outputs.build_tools }}'
-            yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "platforms;android-$platform" "build-tools;$build_tools" >/dev/null
             android_sdk="$GITHUB_WORKSPACE/.ci/android-sdk"
             mkdir -p "$android_sdk/platforms" "$android_sdk/build-tools"
             ln -s "$ANDROID_HOME/platform-tools" "$android_sdk/platform-tools"

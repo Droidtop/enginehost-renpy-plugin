@@ -118,7 +118,16 @@ import android.content.res.loader.ResourcesProvider;
         Log.v("python", "onCreate()");
 '''
     if marker not in source:
-        raise SystemExit("RAPT resource attachment anchor changed")
+        # Older RAPTs (7.3) open onCreate without the python log line; attach
+        # the resources as the first statement there instead.
+        bare_marker = '''    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+'''
+        if bare_marker not in source:
+            raise SystemExit("RAPT resource attachment anchor changed")
+        marker = bare_marker
+        replacement = replacement.replace('        Log.v("python", "onCreate()");
+', '')
     source = source.replace(marker, replacement, 1)
 apk_anchor = '''        try {
             appInfo = packMgmr.getApplicationInfo(getPackageName(), 0);

@@ -126,8 +126,7 @@ import android.content.res.loader.ResourcesProvider;
         if bare_marker not in source:
             raise SystemExit("RAPT resource attachment anchor changed")
         marker = bare_marker
-        replacement = replacement.replace('        Log.v("python", "onCreate()");
-', '')
+        replacement = replacement.replace('        Log.v("python", "onCreate()");' + chr(10), '')
     source = source.replace(marker, replacement, 1)
 apk_anchor = '''        try {
             appInfo = packMgmr.getApplicationInfo(getPackageName(), 0);

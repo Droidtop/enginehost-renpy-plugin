@@ -2,6 +2,7 @@
 """Apply enginehost's Android wrapper to an unpacked official RAPT tree."""
 
 import json
+import re as _re
 import shutil
 import sys
 from pathlib import Path
@@ -217,7 +218,6 @@ prototype_gradle = sdk / "rapt/prototype/build.gradle"
 if prototype_gradle.is_file():
     source = prototype_gradle.read_text(encoding="utf-8")
     if "com.android.tools.build:gradle:3." in source:
-        import re as _re
         prototype_gradle.write_text(
             _re.sub(r"com\.android\.tools\.build:gradle:3\.[0-9.]+", "com.android.tools.build:gradle:4.0.1", source),
             encoding="utf-8")
@@ -226,6 +226,17 @@ if prototype_gradle.is_file():
             wrapper.write_text(
                 _re.sub(r"gradle-[0-9.]+-(all|bin)\.zip", "gradle-6.1.1-all.zip", wrapper.read_text(encoding="utf-8")),
                 encoding="utf-8")
+
+# The wrapper attaches its resource APK through ResourcesLoader, which arrived
+# in API 30; the code is guarded at runtime but still has to compile. RAPTs
+# older than that compile against 28, so raise just the compile target. The
+# minimum stays where the line put it.
+for old_gradle in (sdk / "rapt/prototype/renpyandroid/build.gradle", sdk / "rapt/templates/app-build.gradle"):
+    if old_gradle.is_file():
+        source = old_gradle.read_text(encoding="utf-8")
+        replaced = _re.sub(r"compileSdkVersion 2[0-9]", "compileSdkVersion 30", source)
+        if replaced != source:
+            old_gradle.write_text(replaced, encoding="utf-8")
 
 gradle = sdk / "rapt/templates/app-build.gradle"
 source = gradle.read_text(encoding="utf-8")

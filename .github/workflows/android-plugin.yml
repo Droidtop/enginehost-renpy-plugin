@@ -67,10 +67,12 @@ jobs:
           java-version: ${{ steps.runtime.outputs.java }}
       - name: Install the SDK parts an older RAPT builds against
         if: ${{ steps.runtime.outputs.platform != '' }}
-        env:
-          # sdkmanager itself needs a current JDK; the line's own JDK comes later.
-          JAVA_HOME: ${{ env.JAVA_HOME_21_X64 }}
         run: |
+          # sdkmanager itself needs a current JDK; the line's own JDK is what
+          # setup-java put on PATH, so borrow the runner's preinstalled 21.
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version 2>&1 | head -1
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install             "platforms;android-${{ steps.runtime.outputs.platform }}"             "build-tools;${{ steps.runtime.outputs.build_tools }}" >/dev/null
       - name: Restore official matching SDK and RAPT
         run: |

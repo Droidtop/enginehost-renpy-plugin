@@ -655,6 +655,9 @@ def init():
 
     # Scan the location once.
     location.scan()
+    for enginehost_location in location.locations:
+        print("ENGINEHOST-SAVE: location %r active=%r" % (
+            getattr(enginehost_location, "directory", enginehost_location), enginehost_location.active))
 
     renpy.loadsave.location = location
 

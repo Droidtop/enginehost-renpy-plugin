@@ -98,9 +98,14 @@ jobs:
           release='${{ steps.runtime.outputs.release }}'
           sdk=".ci/renpy-$release-sdk"
           cp -R renpy/. "$sdk/renpy/"
+          # The last argument is what RAPT compares against the copy of the
+          # engine already unpacked on the device. It must change whenever the
+          # engine does, so it carries the commit; the runtime keeps the eleven
+          # lines apart, since they all unpack into one host files dir.
           python3 enginehost/apply_android_integration.py "$sdk" \
             '${{ steps.runtime.outputs.runtime }}' '${{ steps.runtime.outputs.package }}' \
-            '${{ steps.runtime.outputs.plugin_version }}'
+            '${{ steps.runtime.outputs.plugin_version }}' \
+            '${{ steps.runtime.outputs.runtime }}-${{ github.sha }}'
           android_sdk="$ANDROID_HOME"
           if [ -n '${{ steps.runtime.outputs.platform }}' ]; then
             # An Android Gradle plugin of this age cannot read the runner's modern

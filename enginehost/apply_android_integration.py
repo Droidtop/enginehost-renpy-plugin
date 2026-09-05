@@ -168,6 +168,52 @@ apk_replacement = '''        java.util.ArrayList<String> enginehostResourceApks 
 if apk_anchor not in source:
     raise SystemExit("RAPT APK path integration anchor changed")
 source = source.replace(apk_anchor, apk_replacement, 1)
+# Each Ren'Py line gets its own extracted engine. RAPT unpacks private.mp3
+# into getFilesDir(), and under enginehost that is the host application's own
+# files dir, shared by all eleven lines: whichever line launched last owned the
+# tree, and launching another line had to extract over it again, so switching
+# lines meant a re-extraction nearly every time. Overriding getFilesDir() on the
+# activity moves the whole engine tree rather than only the unpack target: RAPT
+# reads it for the unpack, for ANDROID_PRIVATE, and on the 7.3 line for
+# PYTHONHOME and PYTHONPATH as well, and all of those must name one directory.
+# About 11 MB per line, and only for lines a person actually launches.
+# A plain RAPT build of this tree carries no resource APK list and keeps the
+# stock files dir, which is what a standalone Ren'Py APK wants.
+series = ".".join(runtime.split(".")[:2])
+files_dir_anchor = "    public native void nativeSetEnv(String variable, String value);" + chr(10)
+files_dir_addition = f"""
+    // ENGINEHOST_PRIVATE_DIR: one engine tree per Ren'Py line, under the host's
+    // files dir, so the lines stop extracting over each other.
+    private File enginehostFilesDir = null;
+
+    @Override
+    public File getFilesDir() {{
+        if (enginehostFilesDir != null) {{
+            return enginehostFilesDir;
+        }}
+
+        File stock = super.getFilesDir();
+        Intent enginehostIntent = getIntent();
+        if (enginehostIntent == null || enginehostIntent.getStringArrayListExtra(
+                "dev.enginehost.runtime.RESOURCE_APKS") == null) {{
+            return stock;
+        }}
+
+        File dir = new File(stock, "renpy-engine/{series}");
+        if (!dir.isDirectory() && !dir.mkdirs()) {{
+            throw new IllegalStateException("could not create engine directory " + dir);
+        }}
+
+        Log.i("EnginehostRenPy", "Engine directory " + dir);
+        enginehostFilesDir = dir;
+        return dir;
+    }}
+
+"""
+if files_dir_anchor not in source:
+    raise SystemExit("RAPT nativeSetEnv anchor changed")
+source = source.replace(files_dir_anchor, files_dir_addition + files_dir_anchor, 1)
+
 anchor = '        nativeSetEnv("ANDROID_OLD_PUBLIC", oldExternalStorage.getAbsolutePath());\n'
 addition = '''
 
@@ -194,7 +240,10 @@ addition = '''
 if "ENGINEHOST_GAME_PATH" not in source:
     if anchor not in source:
         raise SystemExit("RAPT PythonSDLActivity integration anchor changed")
-    activity.write_text(source.replace(anchor, anchor + addition, 1), encoding="utf-8")
+    source = source.replace(anchor, anchor + addition, 1)
+# One write, after every edit above. The save-path patch used to write the file
+# itself, so an edit made after it and not before it would be dropped in silence.
+activity.write_text(source, encoding="utf-8")
 
 # Enginehost attaches this APK's resources to the host's own Resources
 # object and refuses a bundle compiled at 0x7f, the host's own id, because

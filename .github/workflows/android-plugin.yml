@@ -46,17 +46,43 @@ jobs:
           repository: Droidtop/enginehost
           ref: codex/engine-bundles
           path: enginehost-tooling
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 21
       - name: Read pinned runtime
         id: runtime
         run: |
           echo "runtime=$(jq -r .runtime enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          # The JDK the line's RAPT can build with: Gradle 4.4 (7.3) wants 8,
+          # Gradle 6.1 (7.4 to 7.6) wants 11, newer RAPTs take 21.
+          echo "java=$(jq -r '.java // 21' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          # Older RAPTs also need a slim SDK (platform and build-tools the template
+          # asks for) and, at 7.3, the Gradle task as a positional argument.
+          echo "platform=$(jq -r '.platform // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "build_tools=$(jq -r '.buildTools // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "build_command=$(jq -r '.buildCommand // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "ndk=$(jq -r '.ndk // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "release=$(jq -r .release enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "package=$(jq -r .package enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "plugin_version=$(jq -r .pluginVersion enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ steps.runtime.outputs.java }}
+      - name: Install the SDK parts an older RAPT builds against
+        if: ${{ steps.runtime.outputs.platform != '' }}
+        run: |
+          # sdkmanager itself needs a current JDK; the line's own JDK is what
+          # setup-java put on PATH, so borrow the runner's preinstalled 21.
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version 2>&1 | head -1
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install             "platforms;android-${{ steps.runtime.outputs.platform }}"             "build-tools;${{ steps.runtime.outputs.build_tools }}"             ${{ steps.runtime.outputs.ndk && format('"ndk;{0}"', steps.runtime.outputs.ndk) }} >/dev/null
+          # Today's sdkmanager writes package.xml entries (extension levels) that
+          # the 2018 Android Gradle plugin's schema rejects outright; drop them.
+          for f in "$ANDROID_HOME/platforms/android-${{ steps.runtime.outputs.platform }}/package.xml"                    "$ANDROID_HOME/build-tools/${{ steps.runtime.outputs.build_tools }}/package.xml"; do
+            [ -f "$f" ] && sed -i 's#<base-extension[^>]*/>##g; s#<extension-level>[^<]*</extension-level>##g' "$f"
+          done
+          # Ren'Py 7.3's launcher opens a window to dump the project before it
+          # builds; the runner has no display, so give it one.
+          sudo apt-get install -y -qq xvfb >/dev/null
       - name: Restore official matching SDK and RAPT
         run: |
           release='${{ steps.runtime.outputs.release }}'
@@ -72,20 +98,64 @@ jobs:
           release='${{ steps.runtime.outputs.release }}'
           sdk=".ci/renpy-$release-sdk"
           cp -R renpy/. "$sdk/renpy/"
+          # The last argument is what RAPT compares against the copy of the
+          # engine already unpacked on the device. It must change whenever the
+          # engine does, so it carries the commit; the runtime keeps the eleven
+          # lines apart, since they all unpack into one host files dir.
           python3 enginehost/apply_android_integration.py "$sdk" \
             '${{ steps.runtime.outputs.runtime }}' '${{ steps.runtime.outputs.package }}' \
-            '${{ steps.runtime.outputs.plugin_version }}'
-          printf '%s\n' "$ANDROID_HOME" > "$sdk/rapt/sdk.txt"
+            '${{ steps.runtime.outputs.plugin_version }}' \
+            '${{ steps.runtime.outputs.runtime }}-${{ github.sha }}'
+          android_sdk="$ANDROID_HOME"
+          if [ -n '${{ steps.runtime.outputs.platform }}' ]; then
+            # An Android Gradle plugin of this age cannot read the runner's modern
+            # SDK layout; give it a slim SDK holding only what its template asks for.
+            platform='${{ steps.runtime.outputs.platform }}'
+            build_tools='${{ steps.runtime.outputs.build_tools }}'
+            android_sdk="$GITHUB_WORKSPACE/.ci/android-sdk"
+            mkdir -p "$android_sdk/platforms" "$android_sdk/build-tools"
+            ln -s "$ANDROID_HOME/platform-tools" "$android_sdk/platform-tools"
+            ln -s "$ANDROID_HOME/licenses" "$android_sdk/licenses"
+            ln -s "$ANDROID_HOME/platforms/android-$platform" "$android_sdk/platforms/android-$platform"
+            ln -s "$ANDROID_HOME/build-tools/$build_tools" "$android_sdk/build-tools/$build_tools"
+            if [ -n '${{ steps.runtime.outputs.ndk }}' ]; then
+              mkdir -p "$android_sdk/ndk"
+              ln -s "$ANDROID_HOME/ndk/${{ steps.runtime.outputs.ndk }}" "$android_sdk/ndk/${{ steps.runtime.outputs.ndk }}"
+            fi
+          fi
+          printf '%s' "$android_sdk" > "$sdk/rapt/sdk.txt"
+          # RAPT before 7.6 reads the project's settings from .android.json.
+          cp enginehost/template/android.json enginehost/template/.android.json
           keytool -genkeypair -noprompt -keystore enginehost/template/android.keystore \
             -storepass android -keypass android -alias android -keyalg RSA \
             -keysize 2048 -validity 10000 -dname "CN=enginehost CI"
           cp enginehost/template/android.keystore enginehost/template/bundle.keystore
+          if [ -n '${{ steps.runtime.outputs.platform }}' ]; then
+            # RAPT before 7.6 expects its "Install SDK" step to have created the
+            # Gradle project and written the SDK path and signing properties;
+            # 7.6 and later write them at build time. Lay them down here.
+            cp -R "$sdk/rapt/prototype/." "$sdk/rapt/project/"
+            cp enginehost/template/android.keystore "$sdk/rapt/android.keystore"
+            cp enginehost/template/android.keystore "$sdk/rapt/bundle.keystore"
+            for store in android bundle; do
+              file=local; [ "$store" = bundle ] && file=bundle
+              {
+                echo "sdk.dir=$android_sdk"
+                echo key.alias=android
+                echo key.store.password=android
+                echo key.alias.password=android
+                echo "key.store=$GITHUB_WORKSPACE/$sdk/rapt/$store.keystore"
+              } > "$sdk/rapt/project/$file.properties"
+            done
+          fi
       - name: Build through this runtime's official RAPT
         run: |
           release='${{ steps.runtime.outputs.release }}'
           mkdir -p dist
           cd ".ci/renpy-$release-sdk"
-          ./renpy.sh launcher android_build "$GITHUB_WORKSPACE/enginehost/template" \
+          export SDL_AUDIODRIVER=dummy
+          if [ -n '${{ steps.runtime.outputs.platform }}' ]; then run_with_display=xvfb-run; run_with_display_args=-a; fi
+          ${run_with_display:-} ${run_with_display_args:-} ./renpy.sh launcher android_build "$GITHUB_WORKSPACE/enginehost/template" ${{ steps.runtime.outputs.build_command }} \
             --destination "$GITHUB_WORKSPACE/dist"
           test -n "$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*.apk' -print -quit)"
       - name: Build signed internal Enginehost bundle

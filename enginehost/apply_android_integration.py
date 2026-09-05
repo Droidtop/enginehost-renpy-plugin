@@ -2,6 +2,7 @@
 """Apply enginehost's Android wrapper to an unpacked official RAPT tree."""
 
 import json
+import re as _re
 import shutil
 import sys
 from pathlib import Path
@@ -11,6 +12,11 @@ sdk = Path(sys.argv[1]).resolve()
 runtime = sys.argv[2]
 package = sys.argv[3]
 plugin_version = sys.argv[4]
+# The identity of the packed engine, not of the release. See the private_version
+# patch below: this string must differ whenever the engine files differ, so the
+# caller passes something derived from the commit, and the plugin version
+# (which stays put for a whole release stream) is never good enough.
+private_version = sys.argv[5] if len(sys.argv) > 5 else plugin_version
 root = Path(__file__).resolve().parent
 
 java_dir = sdk / "rapt/prototype/renpyandroid/src/main/java/org/renpy/android"
@@ -31,7 +37,18 @@ if "dev.enginehost.runtime.RESOURCE_PACKAGE" not in resource_source:
 # A loaded resource APK can share package id 0x7f with Enginehost. Android then
 # exposes its assets but may not resolve its string resources by name. RAPT only
 # uses private_version to decide whether private.mp3 needs extracting, so bind
-# that value to this signed plugin build instead of depending on package ids.
+# that value to this build instead of depending on package ids.
+#
+# It has to be the identity of the packed engine. RAPT's own value is the md5 of
+# private.mp3, so any change to the engine unpacks a fresh copy. This returned
+# the plugin version instead, which does not move for a whole release stream, so
+# after the first Ren'Py bundle a person ever launched, unpackData compared
+# "0.1" against the "0.1" already on disk and skipped the unpack forever: every
+# later build kept running the engine extracted that first time. Java changes
+# still took effect (they ride in the dex, which Enginehost class-loads afresh),
+# which is why patched main.py never ran while the wrapper's own log lines did.
+# The lines share one extraction directory too, the host app's files dir, so a
+# constant per line also let 7.3's engine serve a launch of 7.5.
 resource_source = resource_manager.read_text(encoding="utf-8")
 version_anchor = '''    public String getString(String name) {
 
@@ -41,7 +58,7 @@ version_replacement = f'''    public String getString(String name) {{
 
         if ("private_version".equals(name) &&
                 act.getIntent().hasExtra("dev.enginehost.runtime.RESOURCE_APKS")) {{
-            return "{plugin_version}";
+            return "{private_version}";
         }}
 
         try {{
@@ -118,7 +135,15 @@ import android.content.res.loader.ResourcesProvider;
         Log.v("python", "onCreate()");
 '''
     if marker not in source:
-        raise SystemExit("RAPT resource attachment anchor changed")
+        # Older RAPTs (7.3) open onCreate without the python log line; attach
+        # the resources as the first statement there instead.
+        bare_marker = '''    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+'''
+        if bare_marker not in source:
+            raise SystemExit("RAPT resource attachment anchor changed")
+        marker = bare_marker
+        replacement = replacement.replace('        Log.v("python", "onCreate()");' + chr(10), '')
     source = source.replace(marker, replacement, 1)
 apk_anchor = '''        try {
             appInfo = packMgmr.getApplicationInfo(getPackageName(), 0);
@@ -176,6 +201,73 @@ if "ENGINEHOST_GAME_PATH" not in source:
 # the host's table would win every lookup. RAPT generates app/build.gradle
 # from this template; compile the plugin's resources where the host will
 # never be, as the Godot bundle does.
+# Ren'Py 7.3's RAPT pulls Google's APK-expansion helpers from jcenter, which
+# stopped serving them; nothing else hosts them, so the build cannot resolve
+# com.danikula.expansion at all. Enginehost never builds an expansion APK: the
+# game is read from its own folder. Drop the dependency and the three classes
+# that use it. SDLActivity reaches the same library reflectively and copes with
+# it being absent, and the manifest entries sit behind RAPT's own expansion
+# switch, so nothing else has to change.
+library_gradle = sdk / "rapt/prototype/renpyandroid/build.gradle"
+if library_gradle.is_file():
+    source = library_gradle.read_text(encoding="utf-8")
+    if "com.danikula.expansion" in source:
+        kept = [line for line in source.splitlines(keepends=True) if "com.danikula.expansion" not in line]
+        library_gradle.write_text("".join(kept), encoding="utf-8")
+        for name in ("DownloaderActivity", "DownloaderService", "DownloaderAlarmReceiver"):
+            downloader = sdk / f"rapt/prototype/renpyandroid/src/main/java/org/renpy/android/{name}.java"
+            if downloader.is_file():
+                downloader.unlink()
+
+# jcenter is read-only and increasingly incomplete; the artifacts these older
+# RAPTs want are on Maven Central. Ask for both rather than only the dead one.
+for build_file in (sdk / "rapt/prototype/build.gradle", sdk / "rapt/templates/build.gradle"):
+    if build_file.is_file():
+        source = build_file.read_text(encoding="utf-8")
+        if "jcenter()" in source and "mavenCentral()" not in source:
+            build_file.write_text(source.replace("jcenter()", "mavenCentral()\n        jcenter()"), encoding="utf-8")
+
+# Ren'Py 7.3's RAPT builds with the 2018 Android Gradle plugin, whose AAPT2
+# has no --allow-reserved-package-id: it cannot compile this plugin's
+# resources anywhere but 0x7f, the one id Enginehost refuses. Give that line
+# the plugin and Gradle versions 7.4's own RAPT ships, which do support it.
+prototype_gradle = sdk / "rapt/prototype/build.gradle"
+if prototype_gradle.is_file():
+    source = prototype_gradle.read_text(encoding="utf-8")
+    if "com.android.tools.build:gradle:3." in source:
+        prototype_gradle.write_text(
+            _re.sub(r"com\.android\.tools\.build:gradle:3\.[0-9.]+", "com.android.tools.build:gradle:4.0.1", source),
+            encoding="utf-8")
+        wrapper = sdk / "rapt/prototype/gradle/wrapper/gradle-wrapper.properties"
+        if wrapper.is_file():
+            wrapper.write_text(
+                _re.sub(r"gradle-[0-9.]+-(all|bin)\.zip", "gradle-6.1.1-all.zip", wrapper.read_text(encoding="utf-8")),
+                encoding="utf-8")
+
+# The wrapper attaches its resource APK through ResourcesLoader, which arrived
+# in API 30; the code is guarded at runtime but still has to compile. RAPTs
+# older than that compile against 28, so raise just the compile target. The
+# minimum stays where the line put it.
+raised_compile_target = False
+for old_gradle in (sdk / "rapt/prototype/renpyandroid/build.gradle", sdk / "rapt/templates/app-build.gradle"):
+    if old_gradle.is_file():
+        source = old_gradle.read_text(encoding="utf-8")
+        replaced = _re.sub(r"compileSdkVersion 2[0-9]", "compileSdkVersion 30", source)
+        if replaced != source:
+            old_gradle.write_text(replaced, encoding="utf-8")
+            raised_compile_target = True
+
+# A 2019 lint reading a 2020 platform finds problems in Ren'Py's own Android
+# project that have nothing to do with this build, and by default that fails
+# the release. The build is a means to a signed bundle here, not a review of
+# upstream.
+if raised_compile_target:
+    app_gradle = sdk / "rapt/templates/app-build.gradle"
+    source = app_gradle.read_text(encoding="utf-8")
+    if "checkReleaseBuilds" not in source:
+        lint = "    lintOptions {" + chr(10) + "        checkReleaseBuilds false" + chr(10) + "        abortOnError false" + chr(10) + "    }" + chr(10)
+        app_gradle.write_text(source.replace("android {" + chr(10), "android {" + chr(10) + lint, 1), encoding="utf-8")
+
 gradle = sdk / "rapt/templates/app-build.gradle"
 source = gradle.read_text(encoding="utf-8")
 gradle_anchor = "android {\n"

@@ -455,6 +455,8 @@ def main():
 
     renpy.display.log.write("Enginehost save path: %r; game path: %r; savedir: %r",
         os.environ.get("ENGINEHOST_SAVE_PATH"), os.environ.get("ENGINEHOST_GAME_PATH"), renpy.config.savedir)
+    print("ENGINEHOST-SAVE: env save path %r; game path %r; savedir %r" % (
+        os.environ.get("ENGINEHOST_SAVE_PATH"), os.environ.get("ENGINEHOST_GAME_PATH"), renpy.config.savedir))
 
     if renpy.game.args.savedir:  # @UndefinedVariable
         renpy.config.savedir = renpy.game.args.savedir  # @UndefinedVariable

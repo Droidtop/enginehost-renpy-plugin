@@ -165,6 +165,7 @@ addition = '''
             String enginehostOptions = getIntent().getStringExtra("dev.enginehost.runtime.CALLER_CONFIG");
             if (enginehostOptions != null) nativeSetEnv("ENGINEHOST_OPTIONS_JSON", enginehostOptions);
             String enginehostSavePath = getIntent().getStringExtra("dev.enginehost.runtime.SAVE_PATH");
+            Log.i("EnginehostRenPy", "Save path extra: " + enginehostSavePath);
             if (enginehostSavePath != null) {
                 File enginehostSaveFolder = new File(enginehostSavePath);
                 if (!enginehostSaveFolder.isDirectory() && !enginehostSaveFolder.mkdirs()) {

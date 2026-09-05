@@ -12,6 +12,11 @@ sdk = Path(sys.argv[1]).resolve()
 runtime = sys.argv[2]
 package = sys.argv[3]
 plugin_version = sys.argv[4]
+# The identity of the packed engine, not of the release. See the private_version
+# patch below: this string must differ whenever the engine files differ, so the
+# caller passes something derived from the commit, and the plugin version
+# (which stays put for a whole release stream) is never good enough.
+private_version = sys.argv[5] if len(sys.argv) > 5 else plugin_version
 root = Path(__file__).resolve().parent
 
 java_dir = sdk / "rapt/prototype/renpyandroid/src/main/java/org/renpy/android"
@@ -32,7 +37,18 @@ if "dev.enginehost.runtime.RESOURCE_PACKAGE" not in resource_source:
 # A loaded resource APK can share package id 0x7f with Enginehost. Android then
 # exposes its assets but may not resolve its string resources by name. RAPT only
 # uses private_version to decide whether private.mp3 needs extracting, so bind
-# that value to this signed plugin build instead of depending on package ids.
+# that value to this build instead of depending on package ids.
+#
+# It has to be the identity of the packed engine. RAPT's own value is the md5 of
+# private.mp3, so any change to the engine unpacks a fresh copy. This returned
+# the plugin version instead, which does not move for a whole release stream, so
+# after the first Ren'Py bundle a person ever launched, unpackData compared
+# "0.1" against the "0.1" already on disk and skipped the unpack forever: every
+# later build kept running the engine extracted that first time. Java changes
+# still took effect (they ride in the dex, which Enginehost class-loads afresh),
+# which is why patched main.py never ran while the wrapper's own log lines did.
+# The lines share one extraction directory too, the host app's files dir, so a
+# constant per line also let 7.3's engine serve a launch of 7.5.
 resource_source = resource_manager.read_text(encoding="utf-8")
 version_anchor = '''    public String getString(String name) {
 
@@ -42,7 +58,7 @@ version_replacement = f'''    public String getString(String name) {{
 
         if ("private_version".equals(name) &&
                 act.getIntent().hasExtra("dev.enginehost.runtime.RESOURCE_APKS")) {{
-            return "{plugin_version}";
+            return "{private_version}";
         }}
 
         try {{

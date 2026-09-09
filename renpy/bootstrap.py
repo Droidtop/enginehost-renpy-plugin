@@ -249,7 +249,11 @@ def bootstrap(renpy_base):
     if args.trace:
         enable_trace(args.trace)
 
-    if args.basedir:
+    enginehost_game_path = os.environ.get("ENGINEHOST_GAME_PATH")
+
+    if enginehost_game_path:
+        basedir = os.path.abspath(enginehost_game_path)
+    elif args.basedir:
         basedir = os.path.abspath(args.basedir)
         if not isinstance(basedir, str):
             basedir = basedir.decode(FSENCODING)

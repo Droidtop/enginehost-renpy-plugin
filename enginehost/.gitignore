@@ -1,0 +1,4 @@
+/template/*.keystore
+/template/bundle.keystore
+/dist/
+__pycache__/

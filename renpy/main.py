@@ -484,8 +484,27 @@ def main():
     renpy.game.exception_info = 'After loading the script.'
 
     # Find the save directory.
+    # Enginehost gives each engine one save folder, chosen by the person and
+    # handed to the runtime as ENGINEHOST_SAVE_PATH. Ren'Py names the game's
+    # own directory inside it exactly as it does on the desktop, so saves are
+    # reachable, survive an uninstall, and can be copied between devices.
+    enginehost_save_path = os.environ.get("ENGINEHOST_SAVE_PATH")
+    if os.environ.get("ENGINEHOST_GAME_PATH"):
+        # Under Enginehost, saves live beside the game in game/saves, the one
+        # folder that is per game, already read and written by Ren'Py, and
+        # visible to the person. Android's app-private folder is never used:
+        # RAPT assumed one game per app, so every game would share the same
+        # slots and persistent data there. The shared save path Enginehost
+        # hands over is logged but not yet used for Ren'Py; see the log line.
+        renpy.config.savedir = os.path.join(renpy.config.gamedir, "saves")
+
     if renpy.config.savedir is None:
         renpy.config.savedir = renpy.__main__.path_to_saves(renpy.config.gamedir) # E1101 @UndefinedVariable
+
+    renpy.display.log.write("Enginehost save path: %r; game path: %r; savedir: %r",
+        enginehost_save_path, os.environ.get("ENGINEHOST_GAME_PATH"), renpy.config.savedir)
+    print("ENGINEHOST-SAVE: env save path %r; game path %r; savedir %r" % (
+        os.environ.get("ENGINEHOST_SAVE_PATH"), os.environ.get("ENGINEHOST_GAME_PATH"), renpy.config.savedir))
 
     if renpy.game.args.savedir: # type: ignore
         renpy.config.savedir = renpy.game.args.savedir # type: ignore

@@ -510,13 +510,23 @@ def main():
     # reachable, survive an uninstall, and can be copied between devices.
     enginehost_save_path = os.environ.get("ENGINEHOST_SAVE_PATH")
     if os.environ.get("ENGINEHOST_GAME_PATH"):
-        # Under Enginehost, saves live beside the game in game/saves, the one
-        # folder that is per game, already read and written by Ren'Py, and
-        # visible to the person. Android's app-private folder is never used:
-        # RAPT assumed one game per app, so every game would share the same
-        # slots and persistent data there. The shared save path Enginehost
-        # hands over is logged but not yet used for Ren'Py; see the log line.
-        renpy.config.savedir = os.path.join(renpy.config.gamedir, "saves")
+        # Under Enginehost the primary save directory is the folder the
+        # person chose in Enginehost (the shared save root, or Ren'Py's own
+        # root), with this game's own directory inside it named by
+        # config.save_directory -- exactly how Ren'Py places saves on a
+        # desktop (path_to_saves: <user save root>/<save_directory>). The
+        # game's own game/saves stays a second read/write location
+        # (savelocation.init adds it), as it is on a desktop, so saves made
+        # beside the game keep loading and keep being updated. Android's
+        # app-private folder is never used: RAPT assumed one game per app,
+        # so every game would share the same slots and persistent data.
+        #
+        # A game that names no save_directory has nothing to be told apart
+        # by inside a shared folder, so it saves beside itself only.
+        if enginehost_save_path and renpy.config.save_directory:
+            renpy.config.savedir = os.path.join(enginehost_save_path, renpy.config.save_directory)
+        else:
+            renpy.config.savedir = os.path.join(renpy.config.gamedir, "saves")
 
     if renpy.config.savedir is None:
         renpy.config.savedir = __main__.path_to_saves(renpy.config.gamedir) # E1101 @UndefinedVariable

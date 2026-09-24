@@ -22,3 +22,14 @@ bad integration release.
 
 Upstream Ren'Py: https://github.com/renpy/renpy
 enginehost: https://github.com/bi0shacker001/enginehost
+
+## Search path on the 7.3 line
+
+Ren'Py 7.3's `renpy.main` empties `config.searchpath` on Android and searches
+only `$ANDROID_PUBLIC/game`, so archives in the Enginehost game folder were
+never found (`Couldn't find file 'fullgame.rpa'`). When `ENGINEHOST_GAME_PATH`
+is set, 7.3 searches only `config.gamedir` (the game folder's own `game/`,
+chosen by bootstrap); the app's public folder is not a game source, matching
+the loader's rule that game files come from the game folder only. Lines 7.4+
+keep `config.gamedir` in their Android searchpath and guard the APK game
+assets in `renpy.loader` instead.

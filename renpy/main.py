@@ -324,7 +324,19 @@ def main():
     if "RENPY_SEARCHPATH" in os.environ:
         renpy.config.searchpath.extend(os.environ["RENPY_SEARCHPATH"].split("::"))
 
-    if renpy.android:
+    if renpy.android and os.environ.get("ENGINEHOST_GAME_PATH"):
+        # Under Enginehost the game is a folder on disk, and bootstrap made
+        # it the basedir, so config.gamedir is that game's own game/. RAPT's
+        # branch below throws the searchpath away and searches only the
+        # app's public folder, so no archive in the game folder was ever
+        # found ("Couldn't find file 'fullgame.rpa'."). Search the game's
+        # own directory alone; Ren'Py's common files still come from the APK.
+        renpy.config.searchpath = [ renpy.config.gamedir ]
+        renpy.config.commondir = None
+
+        print("Enginehost searchpath: ", renpy.config.gamedir)
+
+    elif renpy.android:
         renpy.config.searchpath = [ ]
         renpy.config.commondir = None
 

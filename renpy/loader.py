@@ -70,7 +70,25 @@ if renpy.android:
     import android.apk # type: ignore
 
     expansion = os.environ.get("ANDROID_EXPANSION", None)
-    if expansion is not None:
+    if os.environ.get("ENGINEHOST_GAME_PATH"):
+        # Under Enginehost the game is a folder on disk, and the APK's own
+        # assets/x-game is only the packaging template RAPT needs to build
+        # at all. It must never be a source of game files: a game whose
+        # scripts live in a subfolder has no game/script.rpy to shadow the
+        # template's, so the template's `label start` ("This runtime must be
+        # started programmatically by enginehost.") ran in place of the
+        # game's story, under the game's own main menu, and the template's
+        # options.rpy could name the game the same way (rig, 2026-09-17,
+        # DivineDawn 0.27b). Ren'Py's common files still come from the APK.
+        print("Enginehost: game files come from the game folder only.")
+
+        apks = [
+            android.apk.APK(prefix='assets/x-renpy/x-common/'),
+            ]
+
+        game_apks = [ ]
+
+    elif expansion is not None:
         print("Using expansion file", expansion)
 
         apks = [

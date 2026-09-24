@@ -171,6 +171,12 @@ jobs:
           mkdir -p build/payload build/output
           cp "$apk" build/payload/runtime.apk
           unzip -q "$apk" 'classes*.dex' 'lib/*' -d build/payload
+          # Every plugin ships arm64-v8a AND x86_64; fail here rather than
+          # publish a bundle an x86_64 device cannot run.
+          for abi in arm64-v8a x86_64; do
+            test -n "$(ls build/payload/lib/$abi 2>/dev/null)" || { echo "bundle has no $abi libraries"; exit 1; }
+          done
+          ls build/payload/lib
           cp enginehost/LICENSES.md build/payload/LICENSES.md
           jq --arg runtime "$runtime" --arg series "$series" --arg line "$line" '
             .bundleId = ("dev.enginehost.renpy." + $line + ".v1") |

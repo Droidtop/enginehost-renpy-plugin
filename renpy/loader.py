@@ -75,7 +75,18 @@ game_apks = [ ]
 if renpy.android:
     import android.apk # type: ignore
 
-    if renpy.config.renpy_base == renpy.config.basedir:
+    # Under Enginehost the game is a folder on disk, and the APK's own
+    # assets/x-game is only the packaging template RAPT needs to build at
+    # all. It must never be a source of game files: a game whose scripts live
+    # in a subfolder has no game/script.rpy to shadow the template's, so the
+    # template's `label start` ("This runtime must be started
+    # programmatically by enginehost.") ran in place of the game's story
+    # (rig: DivineDawn 0.27b on 8.1, 2026-09-17; Thief of Hearts on 7.8,
+    # 2026-09-24). Ren'Py's common files still come from the APK.
+    if os.environ.get("ENGINEHOST_GAME_PATH"):
+        print("Enginehost: game files come from the game folder only.")
+
+    if renpy.config.renpy_base == renpy.config.basedir and not os.environ.get("ENGINEHOST_GAME_PATH"):
         # Read the game data from the APK.
 
         apks.append(android.apk.APK(prefix='assets/x-game/'))

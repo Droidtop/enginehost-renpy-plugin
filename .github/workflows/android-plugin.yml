@@ -64,7 +64,7 @@ jobs:
           echo "ndk=$(jq -r '.ndk // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "release=$(jq -r .release enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "package=$(jq -r .package enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
-          echo "plugin_version=$(jq -r .pluginVersion enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "plugin_version=$(jq -r .pluginVersion enginehost/bundle-metadata.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -213,9 +213,9 @@ jobs:
     needs: android
     permissions:
       contents: read
-    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@a8a6270dbfe0e7bd475c6d8209e9615960a8c0d7
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@316bfc8e35e7e5a283773ba76029b3d35a1b5521
     with:
-      tooling-sha: a8a6270dbfe0e7bd475c6d8209e9615960a8c0d7
+      tooling-sha: 316bfc8e35e7e5a283773ba76029b3d35a1b5521
       unsigned-artifact: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1-unsigned
       bundle: ${{ needs.android.outputs.bundle }}
       artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1

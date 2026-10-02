@@ -10,6 +10,10 @@ everything released so far is listed under that one heading.
 
 ## [Unreleased]
 
+### Changed
+- The build's signing job is pinned to the Enginehost tooling that refuses a build whose sources changed under an already published declared version (Droidtop/tracker#126). A revision of the plugin's code now has to bump `pluginVersion` in `enginehost/bundle-metadata.json`, the one place the version is declared.
+- The version baked into the APK (Ren'Py's `config.version` and `android.json`) is read from `enginehost/bundle-metadata.json` too, instead of a second copy in `enginehost/runtime.json` that had drifted from it.
+
 ## [0.1] - 2026-09-03
 
 ### Added

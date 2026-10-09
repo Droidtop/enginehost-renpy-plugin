@@ -22,3 +22,11 @@ bad integration release.
 
 Upstream Ren'Py: https://github.com/renpy/renpy
 enginehost: https://github.com/bi0shacker001/enginehost
+
+## Texture uploads on Android
+
+Under Enginehost the 7.8 line uploads textures directly from the surface
+(Ren'Py's ANGLE/web path) instead of through a pixel buffer object; see the
+comment in `renpy/display/core.py` (`draw_objects`). The PBO path crashed the
+Adreno 650 driver during movie playback. Set `ENGINEHOST_RENPY_TEXTURE_PBO=1`
+in the runtime's environment to use the PBO path again.

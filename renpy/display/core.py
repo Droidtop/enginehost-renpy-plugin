@@ -1267,6 +1267,25 @@ class Interface(object):
 
         make_draw("sw", "renpy.display.swdraw", "SWDraw")
 
+        # Enginehost: on Android, upload textures straight from the surface
+        # instead of through a pixel buffer object. gl2texture.pyx
+        # load_gltexture fills a PBO, calls glTexImage2D from it, then
+        # glUnmapBuffer on a buffer that was never mapped and glDeleteBuffers,
+        # all before anything has drawn the texture. On an Adreno 650 a movie
+        # (one full-screen texture per frame) came out with corrupted tiles and
+        # then died with a null dereference inside libGLESv2_adreno.so, called
+        # from the first draw of the new texture (load_gltexture's program.draw
+        # -> gl2shader.pyx glDrawElements) while the driver was working on the
+        # 1920-wide frame: the driver still reads the PBO at that draw. Ren'Py's
+        # own direct path (the one it takes for ANGLE and the web) copies the
+        # pixels inside glTexImage2D. GL2Draw.angle selects only that path in
+        # this line, and the module is compiled in, so the switch is made here.
+        # ENGINEHOST_RENPY_TEXTURE_PBO=1 restores the PBO path.
+        if renpy.android and os.environ.get("ENGINEHOST_GAME_PATH") and "gles2" in draw_objects:
+            if os.environ.get("ENGINEHOST_RENPY_TEXTURE_PBO") != "1":
+                draw_objects["gles2"].angle = True
+                renpy.display.log.write("Enginehost: textures upload without a pixel buffer object.")
+
         rv = [ ]
 
         def append_draw(name):

@@ -23,6 +23,7 @@ from __future__ import division, absolute_import, with_statement, print_function
 from renpy.compat import PY2, basestring, bchr, bord, chr, open, pystr, range, round, str, tobytes, unicode # *
 
 import collections
+import os
 import re
 
 import renpy
@@ -185,7 +186,25 @@ def get_movie_texture(channel, mask_channel=None, side_mask=False, mipmap=None):
 
     if surf is not None:
         renpy.display.render.mutated_surface(surf)
-        tex = renpy.display.draw.load_texture(surf, True, { "mipmap" : mipmap })
+        properties = { "mipmap" : mipmap }
+
+        # Enginehost: a movie frame with no mask is opaque - this line's
+        # decoder converts every frame to RGBA with alpha 255 (ffmedia.c,
+        # sws_scale to get_pixel_format), and only alpha_munge above gives a
+        # frame alpha - so it is the same premultiplied as not. Loading it as
+        # premultiplied makes gl2texture take load_gltexture_premultiplied
+        # (one glTexImage2D into the final texture) instead of
+        # load_gltexture, which draws every frame through the offscreen
+        # framebuffer and copies it back with glCopyTexImage2D. On an Adreno
+        # 650 that per-frame draw and copy corrupted movie frames and then
+        # crashed the driver, once in the draw (glDrawElements) and once in
+        # the copy (glCopyTexImage2D -> memset), both inside load_gltexture.
+        # ENGINEHOST_RENPY_MOVIE_FTL=1 restores the draw-and-copy load.
+        if (mask_surf is None and renpy.android and os.environ.get("ENGINEHOST_GAME_PATH")
+                and os.environ.get("ENGINEHOST_RENPY_MOVIE_FTL") != "1"):
+            properties["premultiplied"] = True
+
+        tex = renpy.display.draw.load_texture(surf, True, properties)
         texture[channel] = tex
         new = True
     else:

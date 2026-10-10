@@ -1,0 +1,184 @@
+name: Build enginehost Ren'Py Android plugin
+
+on:
+  push:
+    branches: ["plugin/**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: >-
+          Promote this build to a GitHub Release on the chosen channel. Stable is
+          for a bundle that has been used with real games on hardware; testing
+          for one that runs games but has not been lived with. Every push
+          already publishes to the unstable channel by itself.
+        type: boolean
+        default: false
+      channel:
+        description: "Release channel for a promoted build"
+        type: choice
+        options: [stable, testing]
+        default: stable
+      tag:
+        description: "Release tag (default: derived from the bundle id; testing adds -testing)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# One agent push supersedes the previous one instead of racing it. Before
+# this, every push queued another full build and nothing cancelled the run
+# it had just obsoleted, so a five-push fix session burned five builds and
+# could email five failures for one problem. Keyed on the ref, so branches
+# and PRs never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    # Builds and packs the payload. No signing key and no write token here:
+    # the Ren'Py SDK and RAPT downloads, Gradle and its plugins run in this job
+    # (Enginehost docs/security/2026-09-24-ci-supply-chain.md).
+    runs-on: ubuntu-24.04
+    outputs:
+      runtime: ${{ steps.runtime.outputs.runtime }}
+      bundle: ${{ steps.pack.outputs.bundle }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Read pinned runtime
+        id: runtime
+        run: |
+          echo "runtime=$(jq -r .runtime enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "release=$(jq -r .release enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "package=$(jq -r .package enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "plugin_version=$(jq -r .pluginVersion enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+      - name: Restore official matching SDK and RAPT
+        run: |
+          release='${{ steps.runtime.outputs.release }}'
+          mkdir -p .ci
+          curl --fail --location --retry 3 --output .ci/sdk.zip \
+            "https://www.renpy.org/dl/$release/renpy-$release-sdk.zip"
+          curl --fail --location --retry 3 --output .ci/rapt.zip \
+            "https://www.renpy.org/dl/$release/renpy-$release-rapt.zip"
+          unzip -q .ci/sdk.zip -d .ci
+          unzip -q .ci/rapt.zip -d ".ci/renpy-$release-sdk"
+      - name: Apply this branch's engine and Android wrapper
+        run: |
+          release='${{ steps.runtime.outputs.release }}'
+          sdk=".ci/renpy-$release-sdk"
+          cp -R renpy/. "$sdk/renpy/"
+          # The last argument is what RAPT compares against the copy of the
+          # engine already unpacked on the device. It must change whenever the
+          # engine does, so it carries the commit; the runtime keeps the eleven
+          # lines apart, since they all unpack into one host files dir.
+          python3 enginehost/apply_android_integration.py "$sdk" \
+            '${{ steps.runtime.outputs.runtime }}' '${{ steps.runtime.outputs.package }}' \
+            '${{ steps.runtime.outputs.plugin_version }}' \
+            '${{ steps.runtime.outputs.runtime }}-${{ github.sha }}'
+          printf '%s\n' "$ANDROID_HOME" > "$sdk/rapt/sdk.txt"
+          keytool -genkeypair -noprompt -keystore enginehost/template/android.keystore \
+            -storepass android -keypass android -alias android -keyalg RSA \
+            -keysize 2048 -validity 10000 -dname "CN=enginehost CI"
+          cp enginehost/template/android.keystore enginehost/template/bundle.keystore
+      - name: Build through this runtime's official RAPT
+        run: |
+          release='${{ steps.runtime.outputs.release }}'
+          mkdir -p dist
+          cd ".ci/renpy-$release-sdk"
+          ./renpy.sh launcher android_build "$GITHUB_WORKSPACE/enginehost/template" \
+            --destination "$GITHUB_WORKSPACE/dist"
+          test -n "$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*.apk' -print -quit)"
+      - name: Pack the unsigned bundle inputs
+        id: pack
+        run: |
+          runtime='${{ steps.runtime.outputs.runtime }}'
+          series="$(printf '%s' "$runtime" | cut -d. -f1,2)"
+          line="$(printf '%s' "$series" | tr . _)"
+          apk="$(find dist -maxdepth 1 -name '*.apk' -print -quit)"
+          test -f "$apk"
+          mkdir -p build/unsigned/payload
+          cp "$apk" build/unsigned/payload/runtime.apk
+          unzip -q "$apk" 'classes*.dex' 'lib/*' -d build/unsigned/payload
+          # Every plugin ships arm64-v8a AND x86_64; fail here rather than
+          # publish a bundle an x86_64 device cannot run.
+          for abi in arm64-v8a x86_64; do
+            test -n "$(ls build/unsigned/payload/lib/$abi 2>/dev/null)" || { echo "bundle has no $abi libraries"; exit 1; }
+          done
+          ls build/unsigned/payload/lib
+          cp enginehost/LICENSES.md build/unsigned/payload/LICENSES.md
+          jq --arg runtime "$runtime" --arg series "$series" --arg line "$line" '
+            .bundleId = ("dev.enginehost.renpy." + $line + ".v1") |
+            .capabilities[0].id = ("renpy-" + $series + "-v1") |
+            .capabilities[0].runtimeVersion = $runtime |
+            .capabilities[0].supportedSeries = [$series] |
+            .source.revision = ("plugin/" + $series)
+          ' enginehost/bundle-metadata.json > build/unsigned/bundle-metadata.json
+          # A tar keeps the file modes the manifest signs; an artifact would not.
+          tar -cf build/unsigned.tar -C build/unsigned payload bundle-metadata.json
+          echo "bundle=dev.enginehost.renpy.$line.v1.enginehost.tar.xz" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: enginehost-renpy-${{ steps.runtime.outputs.runtime }}-v1-unsigned
+          path: build/unsigned.tar
+          if-no-files-found: error
+
+  sign:
+    # Enginehost's one signing mechanism, pinned by commit: the key never
+    # shares a runner with the build.
+    needs: android
+    permissions:
+      contents: read
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@f26c8161cc25de6743bd11f99d9f5879205a710a
+    with:
+      tooling-sha: f26c8161cc25de6743bd11f99d9f5879205a710a
+      unsigned-artifact: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1-unsigned
+      bundle: ${{ needs.android.outputs.bundle }}
+      artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
+      channel: ${{ inputs.channel }}
+    secrets:
+      ENGINEHOST_SIGNING_KEY_PEM: ${{ secrets.ENGINEHOST_SIGNING_KEY_PEM }}
+
+  publish:
+    # Promotion is deliberate: a manual dispatch names the channel. Stable
+    # means used with real games on hardware; testing means it runs games
+    # but has not been lived with. Enginehost offers each person the channel
+    # they chose in Settings and every steadier one. The release logic lives
+    # once, in Droidtop/enginehost (Droidtop/tracker#196).
+    needs: [android, sign]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+    permissions:
+      contents: write
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@f26c8161cc25de6743bd11f99d9f5879205a710a
+    with:
+      tooling-sha: f26c8161cc25de6743bd11f99d9f5879205a710a
+      artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
+      channel: ${{ inputs.channel }}
+      tag: ${{ inputs.tag }}
+    secrets:
+      PLATFORMS_DISPATCH_TOKEN: ${{ secrets.PLATFORMS_DISPATCH_TOKEN }}
+
+  unstable:
+    # Every green push that produced a signed bundle is published as-is on
+    # the unstable channel, replacing the previous one, so a person who opted
+    # into unstable in Enginehost sees each build the moment CI is done with
+    # it, and the build also gets its permanent history release. Branches
+    # whose build makes no bundle publish nothing.
+    needs: [android, sign]
+    if: ${{ github.event_name == 'push' }}
+    permissions:
+      contents: write
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@f26c8161cc25de6743bd11f99d9f5879205a710a
+    with:
+      tooling-sha: f26c8161cc25de6743bd11f99d9f5879205a710a
+      artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
+      channel: unstable
+    secrets:
+      PLATFORMS_DISPATCH_TOKEN: ${{ secrets.PLATFORMS_DISPATCH_TOKEN }}

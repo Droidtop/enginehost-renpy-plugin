@@ -1,0 +1,8 @@
+{
+  "upstream": {
+    "repo": "renpy/renpy",
+    "ref": "7.5.3.22090809",
+    "commit": "23e313d5e0376c9a1b13ae6beb7861368f8acc5b"
+  },
+  "version": "8.0"
+}

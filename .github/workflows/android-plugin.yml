@@ -64,7 +64,7 @@ jobs:
           echo "ndk=$(jq -r '.ndk // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "release=$(jq -r .release enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
           echo "package=$(jq -r .package enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
-          echo "plugin_version=$(jq -r .pluginVersion enginehost/bundle-metadata.json)" >> "$GITHUB_OUTPUT"
+          echo "plugin_version=$(jq -r .pluginVersion enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -172,6 +172,12 @@ jobs:
           mkdir -p build/unsigned/payload
           cp "$apk" build/unsigned/payload/runtime.apk
           unzip -q "$apk" 'classes*.dex' 'lib/*' -d build/unsigned/payload
+          # Every plugin ships arm64-v8a AND x86_64; fail here rather than
+          # publish a bundle an x86_64 device cannot run.
+          for abi in arm64-v8a x86_64; do
+            test -n "$(ls build/unsigned/payload/lib/$abi 2>/dev/null)" || { echo "bundle has no $abi libraries"; exit 1; }
+          done
+          ls build/unsigned/payload/lib
           cp enginehost/LICENSES.md build/unsigned/payload/LICENSES.md
           jq --arg runtime "$runtime" --arg series "$series" --arg line "$line" '
             .bundleId = ("dev.enginehost.renpy." + $line + ".v1") |

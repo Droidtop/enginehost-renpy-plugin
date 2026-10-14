@@ -7,6 +7,6 @@ complete upstream copyright and license notices, including notices for SDL,
 Python, fonts, media codecs, and other bundled dependencies, remain inside the
 unmodified RAPT runtime APK included in the Enginehost bundle.
 
-Enginehost-specific integration code is also distributed under the MIT
-license. Enginehost keeps the upstream source history and applies its wrapper
+The combined work, with Enginehost's integration code, is distributed under GPL-3.0, which
+the MIT licence allows. Enginehost keeps the upstream source history and applies its wrapper
 as the `plugin-core` changeset to each supported Ren'Py release branch.

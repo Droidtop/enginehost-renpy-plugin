@@ -1,0 +1,2 @@
+# Engine-side patches every line in the range needs (droidtop-platforms tools/plugin_line.py).
+>=8.0 0001-window-icon-optional.patch

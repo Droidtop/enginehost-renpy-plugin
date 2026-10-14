@@ -27,7 +27,7 @@
     "revision": "plugin/VERSION_SERIES"
   },
   "licenses": [
-    "MIT",
+    "GPL-3.0 (the Enginehost wrapper and the combined bundle)", "MIT (Ren'Py)",
     "Ren'Py and RAPT bundled notices"
   ]
 }

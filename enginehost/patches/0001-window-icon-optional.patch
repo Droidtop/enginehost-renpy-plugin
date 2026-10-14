@@ -1,0 +1,17 @@
+Enginehost: a window icon the game does not ship is not a fatal error.
+
+Ren'Py 8.x's set_icon loads config.window_icon (gui/window_icon.png in the
+gui template) the first time the display starts, and only a web download is
+caught, so a game without that file stopped at its first line of dialogue
+(rig, tracker#411). A handheld has no window icon to set; skip it.
+--- a/renpy/display/core.py
++++ b/renpy/display/core.py
+@@ -1070,5 +1070,8 @@
+                 pygame.display.set_icon(im)
+             except renpy.webloader.DownloadNeeded:
+                 pass
++            except Exception as e:
++                # Enginehost: a missing or unreadable icon leaves the window without one.
++                renpy.display.log.write("Window icon %r not set: %r", icon, e)
+
+     def set_window_caption(self, force=False):

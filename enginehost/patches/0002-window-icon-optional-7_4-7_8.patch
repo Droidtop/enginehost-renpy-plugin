@@ -1,0 +1,20 @@
+Enginehost: a window icon the game does not ship is not a fatal error (Ren'Py 7.4 to 7.8).
+
+set_icon loads config.window_icon the first time the display starts and only
+a web download is caught, so a game whose icon file is missing stopped at the
+main menu with IOError and then took the process down with SIGSEGV (rig
+2026-10-16, BareWitness on the RP5: "Couldn't find file
+'gui/BWLogoMenuWindow2.png'" at set_icon, Droidtop/tracker#411). A handheld
+has no window icon to set; skip it, as the 8.x patch does.
+--- a/renpy/display/core.py
++++ b/renpy/display/core.py
+@@ -1168,6 +1168,9 @@
+                 pygame.display.set_icon(im)
+             except renpy.webloader.DownloadNeeded:
+                 pass
++            except Exception as e:
++                # Enginehost: a missing or unreadable icon leaves the window without one.
++                renpy.display.log.write("Window icon %r not set: %r", icon, e)
+ 
+     def set_window_caption(self, force=False):
+ 

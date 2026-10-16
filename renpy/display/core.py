@@ -1140,6 +1140,9 @@ class Interface(object):
                 pygame.display.set_icon(im)
             except renpy.webloader.DownloadNeeded:
                 pass
+            except Exception as e:
+                # Enginehost: a missing or unreadable icon leaves the window without one.
+                renpy.display.log.write("Window icon %r not set: %r", icon, e)
 
     def set_window_caption(self, force=False):
 

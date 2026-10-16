@@ -1865,19 +1865,23 @@ class Interface(object):
 
         if icon:
 
-            im = renpy.display.scale.image_load_unscaled(
-                renpy.loader.load(icon),
-                icon,
-                )
+            try:
+                im = renpy.display.scale.image_load_unscaled(
+                    renpy.loader.load(icon),
+                    icon,
+                    )
 
-            # Convert the aspect ratio to be square.
-            iw, ih = im.get_size()
-            imax = max(iw, ih)
-            square_im = renpy.display.pgrender.surface_unscaled((imax, imax), True)
-            square_im.blit(im, ( (imax-iw)/2, (imax-ih)/2 ))
-            im = square_im
+                # Convert the aspect ratio to be square.
+                iw, ih = im.get_size()
+                imax = max(iw, ih)
+                square_im = renpy.display.pgrender.surface_unscaled((imax, imax), True)
+                square_im.blit(im, ( (imax-iw)/2, (imax-ih)/2 ))
+                im = square_im
 
-            pygame.display.set_icon(im)
+                pygame.display.set_icon(im)
+            except Exception as e:
+                # Enginehost: a missing or unreadable icon leaves the window without one.
+                renpy.display.log.write("Window icon %r not set: %r", icon, e)
 
     def set_window_caption(self, force=False):
 

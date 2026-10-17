@@ -1,0 +1,16 @@
+Enginehost: Ren'Py 8.5's Live2D start-up failure is raised, not noted.
+
+onetime_init adds a note to the exception and drops it, then marks Live2D as
+initialised, so has_live2d() answered True and a model loaded into NULL csm
+function pointers (the crash 0004 describes). Re-raise it: has_live2d() is
+False, and Live2D(...) shows the "Could not load Live2D" message.
+--- a/renpy/gl2/live2d.py
++++ b/renpy/gl2/live2d.py
+@@ -84,6 +84,7 @@ def onetime_init():
+             raise Exception("Could not load Live2D. {} was not found.".format(dll))
+     except Exception as e:
+         e.add_note("Live2D Cubism 5.3 or later is required.")
++        raise
+ 
+ 
+     did_onetime_init = True

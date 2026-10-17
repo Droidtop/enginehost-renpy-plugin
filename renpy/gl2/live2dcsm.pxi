@@ -80,8 +80,6 @@ def load(dll):
     if did_load:
         return True
 
-    did_load = True
-
     cdef void *object = NULL
 
     if dll:
@@ -236,5 +234,7 @@ def load(dll):
         raise Exception("csmResetDrawableDynamicFlags not found in Live2D dll " + dll + ".")
 
     post_init()
+
+    did_load = True
 
     return True

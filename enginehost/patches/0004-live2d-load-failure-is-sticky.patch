@@ -1,0 +1,29 @@
+Enginehost: a Live2D Cubism Core that failed to load stays an error.
+
+live2dmodel.load() set did_load before it had loaded anything. The first call
+that failed (libLive2DCubismCore.so is not on the handheld, so SDL_LoadObject
+returns NULL) raised, and every later call answered True with every csm*
+function pointer still NULL. Live2DModel.__init__ then called
+csmReviveMocInPlace through a NULL pointer: SIGSEGV at pc 0 on SDLThread, the
+caller in the live2dmodel module (Love & Sex: Second Base, Ren'Py 8.5.3, on
+the console, 2026-10-16; the game ships .moc3 models in three DLCs). did_load
+now becomes true only after every function resolved, so each attempt fails the
+same way and the game gets a Python exception instead of a crash.
+--- a/renpy/gl2/live2dcsm.pxi
++++ b/renpy/gl2/live2dcsm.pxi
+@@ -87,8 +87,6 @@ def load(dll):
+     if did_load:
+         return True
+ 
+-    did_load = True
+-
+     cdef void *object = NULL
+ 
+     if dll:
+@@ -252,4 +250,6 @@ def load(dll):
+ 
+     post_init()
+ 
++    did_load = True
++
+     return True

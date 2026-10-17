@@ -10,6 +10,9 @@ everything released so far is listed under that one heading.
 
 ## [Unreleased]
 
+### Fixed
+- A game with Live2D models (Love & Sex: Second Base) crashed the Ren'Py 7.5+ and 8.x cores with a segfault when the Live2D Cubism Core library was not present: the loader remembered a failed load as a success, so the second attempt called a NULL function. A failed load now stays an error the game can show, and 8.5 no longer swallows it.
+
 ### Changed
 - The build's signing job is pinned to the Enginehost tooling that refuses a build whose sources changed under an already published declared version (Droidtop/tracker#126). A revision of the plugin's code now has to bump `pluginVersion` in `enginehost/bundle-metadata.json`, the one place the version is declared.
 - The version baked into the APK (Ren'Py's `config.version` and `android.json`) is read from `enginehost/bundle-metadata.json` too, instead of a second copy in `enginehost/runtime.json` that had drifted from it.

@@ -1,0 +1,43 @@
+Enginehost: a window icon the game does not ship is not a fatal error (Ren'Py 7.3).
+
+Same as 0002 for 7.4 to 7.8; 7.3's set_icon has no try block at all, so the
+whole load-and-convert body is wrapped (Droidtop/tracker#411).
+--- a/renpy/display/core.py
++++ b/renpy/display/core.py
+@@ -1865,19 +1865,23 @@
+ 
+         if icon:
+ 
+-            im = renpy.display.scale.image_load_unscaled(
+-                renpy.loader.load(icon),
+-                icon,
+-                )
+-
+-            # Convert the aspect ratio to be square.
+-            iw, ih = im.get_size()
+-            imax = max(iw, ih)
+-            square_im = renpy.display.pgrender.surface_unscaled((imax, imax), True)
+-            square_im.blit(im, ( (imax-iw)/2, (imax-ih)/2 ))
+-            im = square_im
+-
+-            pygame.display.set_icon(im)
++            try:
++                im = renpy.display.scale.image_load_unscaled(
++                    renpy.loader.load(icon),
++                    icon,
++                    )
++
++                # Convert the aspect ratio to be square.
++                iw, ih = im.get_size()
++                imax = max(iw, ih)
++                square_im = renpy.display.pgrender.surface_unscaled((imax, imax), True)
++                square_im.blit(im, ( (imax-iw)/2, (imax-ih)/2 ))
++                im = square_im
++
++                pygame.display.set_icon(im)
++            except Exception as e:
++                # Enginehost: a missing or unreadable icon leaves the window without one.
++                renpy.display.log.write("Window icon %r not set: %r", icon, e)
+ 
+     def set_window_caption(self, force=False):
+ 

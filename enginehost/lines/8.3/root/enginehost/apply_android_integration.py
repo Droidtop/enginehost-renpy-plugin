@@ -217,6 +217,10 @@ addition = '''
                 }
                 nativeSetEnv("ENGINEHOST_SAVE_PATH", enginehostSaveFolder.getAbsolutePath());
             }
+            // This game's own save folder, when the launching app gave one: the
+            // engine uses it as is (Droidtop/tracker#580).
+            String enginehostGameSavePath = getIntent().getStringExtra("dev.enginehost.runtime.GAME_SAVE_PATH");
+            if (enginehostGameSavePath != null) nativeSetEnv("ENGINEHOST_GAME_SAVE_PATH", enginehostGameSavePath);
         }
 '''
 if "ENGINEHOST_GAME_PATH" not in source:

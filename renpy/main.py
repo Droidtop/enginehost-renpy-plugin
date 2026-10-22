@@ -468,7 +468,12 @@ def main():
         #
         # A game that names no save_directory has nothing to be told apart
         # by inside a shared folder, so it saves beside itself only.
-        if enginehost_save_path and renpy.config.save_directory:
+        enginehost_game_save_path = os.environ.get("ENGINEHOST_GAME_SAVE_PATH")
+        if enginehost_game_save_path:
+            # The launching app gave this game's own save folder: Enginehost
+            # decides where saves go, and Ren'Py uses it as is (Droidtop/tracker#580).
+            renpy.config.savedir = enginehost_game_save_path
+        elif enginehost_save_path and renpy.config.save_directory:
             renpy.config.savedir = os.path.join(enginehost_save_path, renpy.config.save_directory)
         else:
             renpy.config.savedir = os.path.join(renpy.config.gamedir, "saves")

@@ -153,9 +153,9 @@ jobs:
     needs: android
     permissions:
       contents: read
-    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@419594b25cc704175e71879120444423b231d6d6
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@48e288cbaf9c075156923e0be63b2dc2a796124c
     with:
-      tooling-sha: 419594b25cc704175e71879120444423b231d6d6
+      tooling-sha: 48e288cbaf9c075156923e0be63b2dc2a796124c
       unsigned-artifact: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1-unsigned
       bundle: ${{ needs.android.outputs.bundle }}
       artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
@@ -174,9 +174,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@419594b25cc704175e71879120444423b231d6d6
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@48e288cbaf9c075156923e0be63b2dc2a796124c
     with:
-      tooling-sha: 419594b25cc704175e71879120444423b231d6d6
+      tooling-sha: 48e288cbaf9c075156923e0be63b2dc2a796124c
       artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
       channel: ${{ inputs.channel }}
       tag: ${{ inputs.tag }}
@@ -193,9 +193,9 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@419594b25cc704175e71879120444423b231d6d6
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@48e288cbaf9c075156923e0be63b2dc2a796124c
     with:
-      tooling-sha: 419594b25cc704175e71879120444423b231d6d6
+      tooling-sha: 48e288cbaf9c075156923e0be63b2dc2a796124c
       artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
       channel: unstable
     secrets:

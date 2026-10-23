@@ -124,7 +124,8 @@ jobs:
             .capabilities[0].supportedSeries = [$series] |
             .source.revision = ("plugin/" + $series) |
             .gameWrites = ["game/saves", "game/cache"] |
-            .unpack = {apk: "runtime.apk", asset: "assets/private.mp3", stampFile: "private.version", stamp: $stamp}
+            .unpack = {apk: "runtime.apk", asset: "assets/private.mp3", stampFile: "private.version", stamp: $stamp} |
+            .lockdown = true
           ' enginehost/bundle-metadata.json > build/unsigned/bundle-metadata.json
           # A tar keeps the file modes the manifest signs; an artifact would not.
           tar -cf build/unsigned.tar -C build/unsigned payload bundle-metadata.json

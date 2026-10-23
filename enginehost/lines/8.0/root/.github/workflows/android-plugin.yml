@@ -203,7 +203,8 @@ jobs:
             .capabilities[0].supportedSeries = [$series] |
             .source.revision = ("plugin/" + $series) |
             .gameWrites = ["game/saves", "game/cache"] |
-            .unpack = {apk: "runtime.apk", asset: "assets/private.mp3", stampFile: "private.version", stamp: $stamp}
+            .unpack = {apk: "runtime.apk", asset: "assets/private.mp3", stampFile: "private.version", stamp: $stamp} |
+            .lockdown = true
           ' enginehost/bundle-metadata.json > build/unsigned/bundle-metadata.json
           # Ren'Py 8.5's APK is multidex where 8.2 and 8.3 were not, and
           # enginehost class-loads exactly the dex files this manifest

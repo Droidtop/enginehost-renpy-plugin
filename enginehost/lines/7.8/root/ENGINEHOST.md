@@ -30,3 +30,30 @@ Under Enginehost the 7.8 line uploads textures directly from the surface
 comment in `renpy/display/core.py` (`draw_objects`). The PBO path crashed the
 Adreno 650 driver during movie playback. Set `ENGINEHOST_RENPY_TEXTURE_PBO=1`
 in the runtime's environment to use the PBO path again.
+
+## The game sees its own platform (2026-10-23)
+
+Games do not get to refuse Enginehost's wrapper. The owner, 2026-10-22: "If
+the test game refuses android, we need to fix our wrapper to fix that. Games
+don't GET to say no to us." (NekoParadise 0.18 raised "Android not
+supported!" from its own script on the Ren'Py 7.5 core.)
+
+So every line shows a game's own script the desktop platform the game was
+shipped for: Windows when its folder has a `.exe`, Linux for a `.sh`, macOS
+for a `.app`, and Windows otherwise (`renpy/enginehost_platform.py`, series
+patch `0006-present-shipped-platform.patch`). It runs right after Ren'Py
+chooses its variants, and it changes two things.
+
+- **The platform flags in `renpy.exports`**, the `renpy` a script sees:
+  `android`, `mobile`, `ios` and `emscripten` are false, and the shipped
+  platform's flag is true. The engine's own flags (`renpy.android` on the
+  package) are unchanged, so it still runs as the Android build it is.
+- **`config.variants`**: the variants that name a platform (`android`,
+  `mobile`, `ios`, `firetv`, `chromeos`) are taken out, and `pc` is added
+  last. The layout variants (`touch`, `small`, `medium`, `phone`, `tablet`,
+  `tv`) stay, so screens still fit the device (owner, 2026-10-23).
+
+A game's options can choose Android instead: `"platform": "android"` in its
+enginehost.json `options`, which the activity passes as
+`ENGINEHOST_ENGINE_OPTIONS`. The log says which platform was shown
+("Enginehost: presenting windows to the game").

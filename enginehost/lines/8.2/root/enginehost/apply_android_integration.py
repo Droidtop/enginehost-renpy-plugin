@@ -208,6 +208,10 @@ addition = '''
             nativeSetEnv("ENGINEHOST_GAME_PATH", enginehostGameFolder.getAbsolutePath());
             String enginehostOptions = getIntent().getStringExtra("dev.enginehost.runtime.CALLER_CONFIG");
             if (enginehostOptions != null) nativeSetEnv("ENGINEHOST_OPTIONS_JSON", enginehostOptions);
+            // The game's own options (its enginehost.json "options"): renpy/enginehost_platform.py
+            // reads "platform" there, to show the game Android instead of its desktop platform.
+            String enginehostEngineOptions = getIntent().getStringExtra("dev.enginehost.runtime.OPTIONS");
+            if (enginehostEngineOptions != null) nativeSetEnv("ENGINEHOST_ENGINE_OPTIONS", enginehostEngineOptions);
             String enginehostSavePath = getIntent().getStringExtra("dev.enginehost.runtime.SAVE_PATH");
             Log.i("EnginehostRenPy", "Save path extra: " + enginehostSavePath);
             if (enginehostSavePath != null) {

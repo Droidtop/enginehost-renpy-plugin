@@ -181,6 +181,16 @@ files_dir_addition = f"""
             return stock;
         }}
 
+        // ENGINEHOST_RUNTIME_FOLDER: Enginehost unpacked this line's runtime from the verified
+        // bundle before any of this code ran, and checks it on every launch (its manifest's
+        // "unpack"). It is read-only under the lockdown, so nothing here unpacks or writes it.
+        String enginehostRuntime = enginehostIntent.getStringExtra("dev.enginehost.runtime.RUNTIME_FOLDER");
+        if (enginehostRuntime != null) {{
+            enginehostFilesDir = new File(enginehostRuntime);
+            Log.i("EnginehostRenPy", "Engine directory (unpacked by Enginehost) " + enginehostFilesDir);
+            return enginehostFilesDir;
+        }}
+
         File dir = new File(stock, "renpy-engine/{series}");
         if (!dir.isDirectory() && !dir.mkdirs()) {{
             throw new IllegalStateException("could not create engine directory " + dir);
@@ -189,6 +199,55 @@ files_dir_addition = f"""
         Log.i("EnginehostRenPy", "Engine directory " + dir);
         enginehostFilesDir = dir;
         return dir;
+    }}
+
+    // ENGINEHOST_EXTERNAL_FILES: RAPT's "public" folder (ANDROID_PUBLIC: log.txt and
+    // saves/security_keys.txt) is the launch's save folder, a system location meaning the
+    // folder the person chose, not Enginehost's shared external folder, which a locked-down
+    // core may not open (docs/engine-sandbox.md in Enginehost, "Ren'Py under lockdown").
+    @Override
+    public File getExternalFilesDir(String type) {{
+        Intent enginehostIntent = getIntent();
+        String save = enginehostIntent == null ? null
+            : enginehostIntent.getStringExtra("dev.enginehost.runtime.SAVE_PATH");
+        if (save == null) {{
+            return super.getExternalFilesDir(type);
+        }}
+        File dir = type == null ? new File(save) : new File(save, type);
+        if (!dir.isDirectory()) {{
+            dir.mkdirs();
+        }}
+        enginehostKeepSecurityKeys(dir);
+        return dir;
+    }}
+
+    // Saves made before this release are signed with the key in the old public folder. Copy
+    // it once, when it can be read (a launch that is not locked down), so they load without
+    // Ren'Py asking whether to trust them.
+    private void enginehostKeepSecurityKeys(File publicDir) {{
+        File keys = new File(publicDir, "saves/security_keys.txt");
+        if (keys.exists()) {{
+            return;
+        }}
+        File old = new File(android.os.Environment.getExternalStorageDirectory(),
+            "Android/data/" + getPackageName() + "/files/saves/security_keys.txt");
+        try {{
+            if (!old.isFile()) {{
+                return;
+            }}
+            keys.getParentFile().mkdirs();
+            try (java.io.InputStream in = new java.io.FileInputStream(old);
+                 java.io.OutputStream out = new java.io.FileOutputStream(keys)) {{
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = in.read(buffer)) > 0) {{
+                    out.write(buffer, 0, read);
+                }}
+            }}
+            Log.i("EnginehostRenPy", "Kept the security keys of earlier saves");
+        }} catch (Exception e) {{
+            Log.w("EnginehostRenPy", "Could not keep the security keys of earlier saves: " + e);
+        }}
     }}
 
 """

@@ -283,6 +283,9 @@ addition = '''
                 throw new IllegalArgumentException("enginehost path is not a directory: " + enginehostGamePath);
             }
             nativeSetEnv("ENGINEHOST_GAME_PATH", enginehostGameFolder.getAbsolutePath());
+            // The runtime Enginehost unpacked is read-only to a locked-down core, so Python must not
+            // write or tidy bytecode there (the rig saw "refused unlink .../main.pyo").
+            nativeSetEnv("PYTHONDONTWRITEBYTECODE", "1");
             String enginehostOptions = getIntent().getStringExtra("dev.enginehost.runtime.CALLER_CONFIG");
             if (enginehostOptions != null) nativeSetEnv("ENGINEHOST_OPTIONS_JSON", enginehostOptions);
             // The game's own options (its enginehost.json "options"): renpy/enginehost_platform.py

@@ -303,6 +303,8 @@ def main():
 
     # Set up variants.
     choose_variants()
+    import renpy.enginehost_platform
+    renpy.enginehost_platform.present()
     renpy.display.touch = "touch" in renpy.config.variants
 
     log_clock("Early init")

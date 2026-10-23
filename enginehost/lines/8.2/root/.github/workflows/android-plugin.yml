@@ -114,12 +114,17 @@ jobs:
           done
           ls build/unsigned/payload/lib
           cp enginehost/LICENSES.md build/unsigned/payload/LICENSES.md
-          jq --arg runtime "$runtime" --arg series "$series" --arg line "$line" '
+          # The stamp is the private_version the integration step gave RAPT, so a runtime Enginehost
+          # unpacked is the one RAPT would have (docs/engine-bundle-format.md in Enginehost, "unpack").
+          jq --arg runtime "$runtime" --arg series "$series" --arg line "$line" \
+            --arg stamp "${{ steps.runtime.outputs.runtime }}-${{ github.sha }}" '
             .bundleId = ("dev.enginehost.renpy." + $line + ".v1") |
             .capabilities[0].id = ("renpy-" + $series + "-v1") |
             .capabilities[0].runtimeVersion = $runtime |
             .capabilities[0].supportedSeries = [$series] |
-            .source.revision = ("plugin/" + $series)
+            .source.revision = ("plugin/" + $series) |
+            .gameWrites = ["game/saves", "game/cache"] |
+            .unpack = {apk: "runtime.apk", asset: "assets/private.mp3", stampFile: "private.version", stamp: $stamp}
           ' enginehost/bundle-metadata.json > build/unsigned/bundle-metadata.json
           # A tar keeps the file modes the manifest signs; an artifact would not.
           tar -cf build/unsigned.tar -C build/unsigned payload bundle-metadata.json

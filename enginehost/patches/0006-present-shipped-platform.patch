@@ -75,13 +75,17 @@ index 0000000000000000000000000000000000000000..fe8e8f3888659e539fca19d7e7a0f8d4
 +    renpy.config.variants = presented_variants(renpy.config.variants)
 +    print("Enginehost: presenting", platform, "to the game; variants", renpy.config.variants)
 diff --git a/renpy/main.py b/renpy/main.py
-index fda383bbb1b3a0c6436fc0334f9f62c58efc59ff..bd491b31e64e98664b7f402f83dc72bf87a14162 100644
 --- a/renpy/main.py
 +++ b/renpy/main.py
-@@ -366,4 +366,6 @@ def main():
-     # Set up variants.
-     choose_variants()
-+    from renpy.enginehost_platform import present as enginehost_present_platform
-+    enginehost_present_platform()
-     renpy.display.touch = "touch" in renpy.config.variants
+@@ -38,2 +38,7 @@
+ last_clock = time.time()
++
++# Imported with this module, before main() installs the game's importer:
++# from 8.4 that importer lists the game's modules on its first lookup and
++# keeps the list, so a lookup that early left the launcher without its own.
++import renpy.enginehost_platform
  
+@@ -366,2 +371,3 @@ def main():
+     choose_variants()
++    renpy.enginehost_platform.present()
+     renpy.display.touch = "touch" in renpy.config.variants

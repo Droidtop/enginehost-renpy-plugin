@@ -36,6 +36,11 @@ import renpy.game as game
 
 last_clock = time.time()
 
+# Imported with this module, before main() installs the game's importer:
+# from 8.4 that importer lists the game's modules on its first lookup and
+# keeps the list, so a lookup that early left the launcher without its own.
+import renpy.enginehost_platform
+
 
 def log_clock(s):
     global last_clock
@@ -364,8 +369,7 @@ def main():
 
     # Set up variants.
     choose_variants()
-    from renpy.enginehost_platform import present as enginehost_present_platform
-    enginehost_present_platform()
+    renpy.enginehost_platform.present()
     renpy.display.touch = "touch" in renpy.config.variants
 
     if (renpy.android or renpy.ios) and not renpy.config.log_to_stdout:

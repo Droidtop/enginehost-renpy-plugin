@@ -4,3 +4,4 @@
 >=7.3,<7.4 0003-window-icon-optional-7_3.patch
 >=7.4 0004-live2d-load-failure-is-sticky.patch
 >=8.5,<8.6 0005-renpy-8_5-live2d-init-raises.patch
+* 0006-present-shipped-platform.patch

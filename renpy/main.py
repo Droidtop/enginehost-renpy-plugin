@@ -339,6 +339,8 @@ def main():
 
     # Set up variants.
     choose_variants()
+    import renpy.enginehost_platform
+    renpy.enginehost_platform.present()
     renpy.display.touch = "touch" in renpy.config.variants
 
     if (renpy.android or renpy.ios) and not renpy.config.log_to_stdout:

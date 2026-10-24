@@ -49,3 +49,16 @@ A game's options can choose Android instead: `"platform": "android"` in its
 enginehost.json `options`, which the activity passes as
 `ENGINEHOST_ENGINE_OPTIONS`. The log says which platform was shown
 ("Enginehost: presenting windows to the game").
+
+## Links the game opens are offered by Enginehost (2026-10-24)
+
+The owner, 2026-10-23: "Enginehost should parse the link type (safely), and then OFFER to open
+it" (Droidtop/tracker#635). Ren'Py opens a link through Python's `webbrowser`: `renpy.open_url`,
+and a game script's own `webbrowser` calls. Under Enginehost, every line registers
+`renpy/enginehost_links.py`'s browser as `webbrowser`'s preferred one (series patch
+`0007-offer-links-through-enginehost.patch`, installed from `enginehost_platform.present()`). It
+hands the link to the activity's `enginehostOpenLink`, which `apply_android_integration.py` adds.
+That calls Enginehost's `dev.enginehost.ActivityLinks.offer` by name, since a core on the
+activity transport has no `EngineHost`. Enginehost checks the link, says what it is, and offers
+to open it or copy it. On an Enginehost without that route nothing opens, rather than the link
+opening unasked.

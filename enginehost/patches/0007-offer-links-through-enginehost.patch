@@ -1,0 +1,62 @@
+diff --git a/renpy/enginehost_links.py b/renpy/enginehost_links.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..e6af70cdaaab94b8e55cf515cab2b2ad2f7692bf
+--- /dev/null
++++ b/renpy/enginehost_links.py
+@@ -0,0 +1,35 @@
++# Enginehost: a link the game opens is offered to the person by Enginehost, never opened by the
++# engine itself (Enginehost docs/SPEC.md, "Links a game opens"; Droidtop/tracker#635; owner,
++# 2026-10-23: "Enginehost should parse the link type (safely), and then OFFER to open it").
++# renpy.open_url and a game script's own webbrowser calls both end in webbrowser's preferred
++# browser, which under Enginehost is this one. It hands the link to the activity's
++# enginehostOpenLink (apply_android_integration.py), which asks Enginehost to offer it.
++from __future__ import print_function
++
++import os
++import webbrowser
++
++
++class EnginehostBrowser(webbrowser.BaseBrowser):
++
++    def open(self, url, new=0, autoraise=True):
++        try:
++            from jnius import autoclass  # type: ignore
++            activity = autoclass("org.renpy.android.PythonSDLActivity")
++            return bool(activity.enginehostOpenLink(url))
++        except Exception as e:
++            # Nothing opens rather than the link opening unasked.
++            print("Enginehost: the link was not offered:", e)
++            return False
++
++
++def install():
++    """Makes Enginehost's offer the browser every webbrowser call uses, under Enginehost only."""
++    if not os.environ.get("ENGINEHOST_GAME_PATH"):
++        return
++    browser = EnginehostBrowser("enginehost")
++    try:
++        webbrowser.register("enginehost", None, browser, preferred=True)
++    except TypeError:
++        # Python 2 (Ren'Py 7): a negative update_tryorder puts it first.
++        webbrowser.register("enginehost", None, browser, -1)
+diff --git a/renpy/enginehost_platform.py b/renpy/enginehost_platform.py
+index fe8e8f3888659e539fca19d7e7a0f8d4de6a4ed4..b457d41ff19021585de1b3ba4d4d2d9fdb0fe065 100644
+--- a/renpy/enginehost_platform.py
++++ b/renpy/enginehost_platform.py
+@@ -17,6 +17,7 @@ import json
+ import os
+ 
+ import renpy
++import renpy.enginehost_links
+ 
+ # Variants that say which platform this is, not how big or touchable it is.
+ PLATFORM_VARIANTS = ("android", "mobile", "ios", "firetv", "chromeos")
+@@ -60,6 +61,8 @@ def present():
+     game_path = os.environ.get("ENGINEHOST_GAME_PATH")
+     if not renpy.android or not game_path:
+         return
++    # Links the game opens go to Enginehost's offer, whatever platform the game is shown.
++    renpy.enginehost_links.install()
+     if chosen(os.environ.get("ENGINEHOST_ENGINE_OPTIONS")) == "android":
+         print("Enginehost: presenting Android to the game, as chosen for it")
+         return

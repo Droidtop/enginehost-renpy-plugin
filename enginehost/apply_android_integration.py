@@ -311,6 +311,35 @@ if "ENGINEHOST_GAME_PATH" not in source:
     if anchor not in source:
         raise SystemExit("RAPT PythonSDLActivity integration anchor changed")
     source = source.replace(anchor, anchor + addition, 1)
+# A link the game opens (renpy/enginehost_links.py) is offered by Enginehost, never
+# opened by the engine (Enginehost docs/SPEC.md, "Links a game opens"). This core runs
+# its own Activity and has no EngineHost, so it reaches Enginehost's named bridge,
+# dev.enginehost.ActivityLinks, through reflection; the owner chose that route on
+# 2026-10-24 until Ren'Py moves onto the plugin transport.
+links_anchor = "    // ENGINEHOST_RESOURCE_APKS:"
+links_method = """    // ENGINEHOST_LINKS: a link the game opens (renpy/enginehost_links.py) is offered by
+    // Enginehost (dev.enginehost.ActivityLinks), never opened here. False when this
+    // Enginehost has no such route (an older one): then nothing opens.
+    public static boolean enginehostOpenLink(String url) {
+        android.app.Activity activity = mSingleton;
+        if (activity == null || url == null) return false;
+        try {
+            Class<?> links = Class.forName("dev.enginehost.ActivityLinks");
+            Object taken = links.getMethod("offer", android.app.Activity.class, String.class)
+                .invoke(null, activity, url);
+            return Boolean.TRUE.equals(taken);
+        } catch (Exception e) {
+            Log.w("EnginehostRenPy", "The link was not offered: " + e);
+            return false;
+        }
+    }
+
+"""
+if "ENGINEHOST_LINKS" not in source:
+    if links_anchor not in source:
+        raise SystemExit("Enginehost resource block missing; the link route has no anchor")
+    source = source.replace(links_anchor, links_method + links_anchor, 1)
+
 # One write, after every edit above. The save-path patch used to write the file
 # itself, so an edit made after it and not before it would be dropped in silence.
 activity.write_text(source, encoding="utf-8")

@@ -339,6 +339,62 @@ if "ENGINEHOST_LINKS" not in source:
     if links_anchor not in source:
         raise SystemExit("Enginehost resource block missing; the link route has no anchor")
     source = source.replace(links_anchor, links_method + links_anchor, 1)
+# The game's lines (renpy/enginehost_text.py) go to Enginehost's text services, which read
+# them aloud and translate them when the person turned that on (Enginehost docs/text-services.md).
+# The same kind of named bridge as the links', dev.enginehost.ActivityText; the owner chose it
+# on 2026-10-28 until Ren'Py moves onto the plugin transport.
+text_methods = """    // ENGINEHOST_TEXT: the game's lines (renpy/enginehost_text.py) go to Enginehost's text
+    // services through dev.enginehost.ActivityText. The methods are looked up once; on an
+    // Enginehost without them, nothing is sent and every line prints as the game wrote it.
+    private static volatile java.lang.reflect.Method enginehostEmitText;
+    private static volatile java.lang.reflect.Method enginehostReplaceTextMethod;
+    private static volatile boolean enginehostTextLookedUp;
+
+    private static synchronized void enginehostFindText() {
+        if (enginehostTextLookedUp) return;
+        enginehostTextLookedUp = true;
+        try {
+            Class<?> text = Class.forName("dev.enginehost.ActivityText");
+            enginehostEmitText = text.getMethod("emit", android.app.Activity.class, String.class);
+            enginehostReplaceTextMethod = text.getMethod("replace", String.class);
+        } catch (Exception e) {
+            Log.w("EnginehostRenPy", "This Enginehost takes no game text: " + e);
+        }
+    }
+
+    public static void enginehostText(String event) {
+        android.app.Activity activity = mSingleton;
+        if (activity == null || event == null) return;
+        enginehostFindText();
+        java.lang.reflect.Method emit = enginehostEmitText;
+        if (emit == null) return;
+        try {
+            emit.invoke(null, activity, event);
+        } catch (Exception e) {
+            Log.w("EnginehostRenPy", "A text event was not taken: " + e);
+        }
+    }
+
+    // The line in the person's language, or null to print it as the game wrote it. Never waits.
+    public static String enginehostReplaceText(String event) {
+        if (event == null) return null;
+        enginehostFindText();
+        java.lang.reflect.Method replace = enginehostReplaceTextMethod;
+        if (replace == null) return null;
+        try {
+            Object answer = replace.invoke(null, event);
+            return answer instanceof String ? (String) answer : null;
+        } catch (Exception e) {
+            Log.w("EnginehostRenPy", "No replacement was given: " + e);
+            return null;
+        }
+    }
+
+"""
+if "ENGINEHOST_TEXT" not in source:
+    if links_anchor not in source:
+        raise SystemExit("Enginehost resource block missing; the text route has no anchor")
+    source = source.replace(links_anchor, text_methods + links_anchor, 1)
 
 # One write, after every edit above. The save-path patch used to write the file
 # itself, so an edit made after it and not before it would be dropped in silence.

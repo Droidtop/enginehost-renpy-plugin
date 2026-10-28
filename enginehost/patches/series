@@ -6,3 +6,4 @@
 >=8.5,<8.6 0005-renpy-8_5-live2d-init-raises.patch
 * 0006-present-shipped-platform.patch
 * 0007-offer-links-through-enginehost.patch
+* 0008-report-text-to-enginehost.patch

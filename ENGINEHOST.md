@@ -62,3 +62,31 @@ That calls Enginehost's `dev.enginehost.ActivityLinks.offer` by name, since a co
 activity transport has no `EngineHost`. Enginehost checks the link, says what it is, and offers
 to open it or copy it. On an Enginehost without that route nothing opens, rather than the link
 opening unasked.
+
+## The game's text goes to Enginehost (2026-10-28)
+
+Enginehost can read a game's lines aloud and translate them (Enginehost docs/text-services.md,
+Droidtop/tracker#490). Every line reports its text with `renpy/enginehost_text.py` (series patch
+`0008-report-text-to-enginehost.patch`), which `enginehost_platform.present()` installs beside
+the link route, under Enginehost only. It has two hooks, the same from Ren'Py 7.3 to 8.5.
+
+- **`display_say`**, which every line passes through: ADV characters through
+  `renpy.character.display_say`, NVL through `renpy.display_say`. Both are wrapped. Each line is
+  sent as an ehtext/1 `line` event with its speaker, its text without Ren'Py's text tags,
+  whether the game voices it (`_get_voice_info()`, which covers `config.auto_voice`) and its
+  window (`adv` or `nvl`). `advance` follows when the line's interaction ends.
+- **`config.say_menu_text_filter`**, which a say statement runs on its text before it is shown.
+  It prints the line's translation in Ren'Py's own text box when Enginehost already has it, and
+  the original otherwise: it never waits. A game's own filter still runs first. Ours is kept
+  around it at every interaction, because a game sets its filter during init, after ours is
+  installed. Menu choices keep their text for now.
+
+A say statement's line id is its translation identifier: Ren'Py sets it for the statement and
+clears it after, so both hooks name the line alike. A line without one (`renpy.say` from Python)
+is named by its text.
+
+The lines reach Enginehost through `PythonSDLActivity.enginehostText` and
+`enginehostReplaceText`, which `apply_android_integration.py` adds. They call Enginehost's
+`dev.enginehost.ActivityText` by reflection: the same kind of named bridge as the links', chosen
+by the owner on 2026-10-28 until Ren'Py moves onto the plugin transport. On an Enginehost without
+it, nothing is sent and every line prints as the game wrote it. Game text is never logged.

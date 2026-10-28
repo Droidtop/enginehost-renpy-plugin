@@ -172,6 +172,9 @@ jobs:
           mkdir -p build/unsigned/payload
           cp "$apk" build/unsigned/payload/runtime.apk
           unzip -q "$apk" 'classes*.dex' 'lib/*' -d build/unsigned/payload
+          # And only those two: RAPT still builds armeabi-v7a, which the signing
+          # job's conformance check refuses (Droidtop/tracker#27, #646).
+          python3 enginehost/keep_64bit_abis.py build/unsigned/payload
           # Every plugin ships arm64-v8a AND x86_64; fail here rather than
           # publish a bundle an x86_64 device cannot run.
           for abi in arm64-v8a x86_64; do
@@ -225,9 +228,9 @@ jobs:
     needs: android
     permissions:
       contents: read
-    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@48e288cbaf9c075156923e0be63b2dc2a796124c
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
     with:
-      tooling-sha: 48e288cbaf9c075156923e0be63b2dc2a796124c
+      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
       unsigned-artifact: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1-unsigned
       bundle: ${{ needs.android.outputs.bundle }}
       artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
@@ -246,9 +249,9 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@48e288cbaf9c075156923e0be63b2dc2a796124c
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
     with:
-      tooling-sha: 48e288cbaf9c075156923e0be63b2dc2a796124c
+      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
       artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
       channel: ${{ inputs.channel }}
       tag: ${{ inputs.tag }}
@@ -265,9 +268,9 @@ jobs:
     if: ${{ github.event_name == 'push' }}
     permissions:
       contents: write
-    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@48e288cbaf9c075156923e0be63b2dc2a796124c
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
     with:
-      tooling-sha: 48e288cbaf9c075156923e0be63b2dc2a796124c
+      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
       artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
       channel: unstable
     secrets:

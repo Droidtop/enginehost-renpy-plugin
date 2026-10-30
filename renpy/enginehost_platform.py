@@ -19,6 +19,7 @@ import os
 import renpy
 import renpy.enginehost_links
 import renpy.enginehost_text
+import renpy.enginehost_loading
 
 # Variants that say which platform this is, not how big or touchable it is.
 PLATFORM_VARIANTS = ("android", "mobile", "ios", "firetv", "chromeos")
@@ -65,6 +66,7 @@ def present():
     # Links the game opens go to Enginehost's offer, whatever platform the game is shown.
     renpy.enginehost_links.install()
     renpy.enginehost_text.install()
+    renpy.enginehost_loading.install()
     if chosen(os.environ.get("ENGINEHOST_ENGINE_OPTIONS")) == "android":
         print("Enginehost: presenting Android to the game, as chosen for it")
         return

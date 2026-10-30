@@ -90,3 +90,22 @@ The lines reach Enginehost through `PythonSDLActivity.enginehostText` and
 `dev.enginehost.ActivityText` by reflection: the same kind of named bridge as the links', chosen
 by the owner on 2026-10-28 until Ren'Py moves onto the plugin transport. On an Enginehost without
 it, nothing is sent and every line prints as the game wrote it. Game text is never logged.
+
+## The presplash fills as the game loads (2026-10-30)
+
+Desktop Ren'Py draws `presplash_background` and `presplash_foreground` as a progress bar while
+the game loads; on Android Ren'Py opens no presplash window, so it counts nothing. Enginehost
+draws the game's presplash before the core starts, and Series patch 0009
+(`renpy/enginehost_loading.py`, installed by `enginehost_platform.present()` beside the links and
+the text) wraps `renpy.display.presplash.pump_window` to count as that line's Ren'Py counts and
+send the fraction its bar would draw (Droidtop/tracker#821):
+
+- 7.4 to 8.0: one step per pump once the script is known, over the script files plus 23;
+- 7.6 to 8.3: one step per pump from the start, over the script files plus 23;
+- 8.4 on: the same, over the common and the game's script files plus `pump_clock`.
+
+It sends at most 24 times a second, only when the fraction changes, and stops at
+`presplash.end()`. `apply_android_integration.py` adds `PythonSDLActivity.enginehostLoading`,
+which calls Enginehost's `dev.enginehost.ActivityLoading.progress` by reflection, looked up once;
+on an Enginehost without it, nothing is sent. Enginehost also counts each report as a sign the
+game is still loading, so it does not ask about a black screen while it fills.

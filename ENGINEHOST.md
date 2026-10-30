@@ -121,3 +121,12 @@ as a whole (Droidtop/tracker#821: Bare Witness took 176 s on the console's SD ca
 goes through; reads on an open file are not counted, since they do not cross Enginehost's
 sandbox broker. It prints no paths. The numbers say which calls a slow start is made of, so the
 start is cut at its cause rather than guessed at.
+
+## 32-bit engines only on request, never published (2026-10-30)
+
+Official Ren'Py cores ship arm64-v8a and x86_64 only. RAPT still builds armeabi-v7a, and
+`enginehost/keep_64bit_abis.py` removes it before signing (Droidtop/tracker#646). For someone who
+needs a 32-bit engine, the owner kept a way to build one: dispatch `android-plugin.yml` on a line
+with `include_32_bit` on. That build keeps RAPT's 32-bit libraries and ends as the unsigned bundle
+inputs artifact (`enginehost-renpy-<runtime>-v1-unsigned`). It is never signed or published, and
+`publish` does nothing with it. Enginehost's signing gate refuses 32-bit libraries anyway.

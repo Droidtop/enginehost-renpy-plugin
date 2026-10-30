@@ -103,6 +103,28 @@ transform atl__swap(child):
     0.3
     child
 
+# atl__swap, run inside a parallel block that is executing when the child is replaced.
+transform atl__swap_parallel(child):
+    animation
+    parallel:
+        child
+        0.3
+        "atl__blue"
+        0.3
+        child
+    parallel:
+        alpha 1.0
+
+# atl__swap, run inside a choice block that is executing when the child is replaced.
+transform atl__swap_choice(child):
+    animation
+    choice:
+        child
+        0.3
+        "atl__blue"
+        0.3
+        child
+
 init python:
     def atl__names(d):
         """
@@ -200,6 +222,14 @@ label atl__child_replace__swap:
     call atl__child_replace(atl__swap)
     return
 
+label atl__child_replace__swap_parallel:
+    call atl__child_replace(atl__swap_parallel)
+    return
+
+label atl__child_replace__swap_choice:
+    call atl__child_replace(atl__swap_choice)
+    return
+
 label atl__child_reshow__start:
     show atl__red as atl__person at atl__swap
 
@@ -239,6 +269,87 @@ label atl__child_layer_dissolve__contains:
 
 label atl__child_layer_dissolve__swap:
     call atl__child_layer_dissolve(atl__swap)
+    return
+
+# Duplication fixtures.
+
+# A displayable that isn't a transform, containing a running ATL transform.
+define atl__moving_fixed = Fixed(At("atl__red", atl__move), fit_first=True)
+
+# Dissolves from red to yellow, then interrupts that dissolve to dissolve to blue.
+image atl__dissolving:
+    "atl__red"
+    0.3
+    "atl__yellow" with Dissolve(1.0)
+    0.3
+    "atl__blue" with Dissolve(1.0)
+
+init python:
+    def atl__find(d, predicate):
+        """
+        Returns the first displayable in the tree under `d` that `predicate` is true for, following the
+        targets of image references and the children of transforms and containers.
+        """
+
+        if d is None:
+            return None
+
+        if predicate(d):
+            return d
+
+        if isinstance(d, renpy.display.image.ImageReference):
+            return atl__find(d.target, predicate)
+
+        for i in getattr(d, "children", ()):
+            rv = atl__find(i, predicate)
+
+            if rv is not None:
+                return rv
+
+        return None
+
+    def atl__find_shown(tag, predicate):
+        """
+        Returns the first displayable `predicate` is true for, under the master layer entry with `tag`.
+        """
+
+        return atl__find(renpy.game.context().scene_lists.get_displayable_by_tag("master", tag), predicate)
+
+    def atl__moving(tag):
+        """
+        Returns the running atl__move transform shown with `tag`.
+        """
+
+        return atl__find_shown(tag, lambda d: isinstance(d, renpy.display.transform.ATLTransform))
+
+    def atl__shown_red():
+        """
+        Returns the atl__red image shown by atl__dissolving, outside of any transition.
+        """
+
+        return atl__find_shown(
+            "atl__person",
+            lambda d: isinstance(d, renpy.display.image.ImageReference) and d.name == ("atl__red",),
+        )
+
+    def atl__dissolve():
+        """
+        Returns the outermost dissolve shown by atl__dissolving, or None if no dissolve is shown.
+        """
+
+        return atl__find_shown("atl__person", lambda d: isinstance(d, renpy.display.transition.Dissolve))
+
+label atl__show_expression__start:
+    show expression atl__moving_fixed as atl__first
+    show expression atl__moving_fixed as atl__second
+
+    "Shown."
+    return
+
+label atl__child_transition__start:
+    show atl__dissolving as atl__person
+
+    "Dissolving."
     return
 
 
@@ -302,10 +413,10 @@ testsuite atl:
             advance
             assert eval (atl__shown() == ["atl__yellow"]) timeout 1.0
 
-            # Past atl__swap's final child statement. Known bug: that statement displays the
-            # displayable compiled into its block, which is still atl__red.
+            # Past atl__swap's final child statement, which must display the new child rather than
+            # the one compiled into its block.
             pause 0.7
-            assert eval (atl__shown() == ["atl__yellow"]) xfail kind == "swap"
+            assert eval (atl__shown() == ["atl__yellow"])
 
         testcase replace_keeps_properties:
             description "Replacing an image under inline ATL keeps the properties the ATL set"
@@ -321,9 +432,20 @@ testsuite atl:
             assert eval (atl__shown() == ["atl__blue"]) timeout 1.0
             advance
 
-            # Past atl__swap's final child statement. Known bug: as in replace with atl__swap.
+            # Past atl__swap's final child statement.
             pause 0.5
-            assert eval (atl__shown() == ["atl__yellow"]) xfail True
+            assert eval (atl__shown() == ["atl__yellow"])
+
+        testcase replace_in_parallel:
+            description "An image replaced while a parallel block runs is displayed by that block's child statement"
+            parameter kind = ["parallel", "choice"]
+            run Start("atl__child_replace__swap_" + kind)
+            assert eval (atl__shown() == ["atl__blue"]) timeout 1.0
+            advance
+
+            # Past the final child statement inside the running block.
+            pause 0.5
+            assert eval (atl__shown() == ["atl__yellow"])
 
         testcase reshow_same_transform:
             description "Showing a new image at the same ATL transform displays the new image"
@@ -367,3 +489,27 @@ testsuite atl:
             assert eval atl__transition_started() timeout 1.0
             pause 0.3
             assert eval (atl__pixel()[0] > 200 and atl__pixel()[1] < 160)
+
+    # A duplicatable displayable has to be duplicated wherever it's shown, so that each place it's
+    # shown runs its own ATL.
+    testsuite duplicate:
+        testcase show_expression:
+            description "Each show expression of a displayable containing ATL runs its own copy of the ATL"
+            run Start("atl__show_expression__start")
+            assert eval (atl__moving("atl__first") is not None) timeout 1.0
+            assert eval (atl__moving("atl__first") is not atl__moving("atl__second"))
+            assert eval (atl__moving("atl__first") is not atl__moving_fixed.children[0])
+
+        testcase child_transition:
+            description "An ATL child statement's transition starts from the child being shown"
+            run Start("atl__child_transition__start")
+            assert eval (atl__shown_red() is not None) timeout 1.0
+            $ atl__red_shown = atl__shown_red()
+
+            assert eval (atl__dissolve() is not None) timeout 1.0
+            assert eval (atl__dissolve().old_widget is atl__red_shown)
+            $ atl__yellow_shown = atl__dissolve().new_widget
+
+            # The second dissolve interrupts the first, and starts from yellow, not the first dissolve.
+            assert eval (atl__dissolve().new_widget is not atl__yellow_shown) timeout 1.0
+            assert eval (atl__dissolve().old_widget is atl__yellow_shown)

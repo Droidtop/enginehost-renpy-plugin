@@ -109,3 +109,15 @@ It sends at most 24 times a second, only when the fraction changes, and stops at
 which calls Enginehost's `dev.enginehost.ActivityLoading.progress` by reflection, looked up once;
 on an Enginehost without it, nothing is sent. Enginehost also counts each report as a sign the
 game is still loading, so it does not ask about a black screen while it fills.
+
+## File calls are counted per start-up phase (2026-10-30)
+
+Series patch 0010 (`renpy/enginehost_files.py`, installed by `enginehost_platform.present()`)
+counts the file calls Ren'Py makes in each start-up phase and prints them after Ren'Py's own
+`<phase> took N ms` line, as `Enginehost: file calls in <phase>: N stat (ms), N listdir (ms),
+...`, plus one line for "interface start to ready" at `presplash.end()`, the stretch Ren'Py times
+as a whole (Droidtop/tracker#821: Bare Witness took 176 s on the console's SD card). It wraps
+`os.stat`, `os.lstat`, `os.listdir`, `os.scandir`, `os.open` and `open`, which every path check
+goes through; reads on an open file are not counted, since they do not cross Enginehost's
+sandbox broker. It prints no paths. The numbers say which calls a slow start is made of, so the
+start is cut at its cause rather than guessed at.

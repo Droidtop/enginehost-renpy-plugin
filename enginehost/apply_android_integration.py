@@ -396,6 +396,46 @@ if "ENGINEHOST_TEXT" not in source:
         raise SystemExit("Enginehost resource block missing; the text route has no anchor")
     source = source.replace(links_anchor, text_methods + links_anchor, 1)
 
+# Ren'Py's start-up progress (renpy/enginehost_loading.py) goes to Enginehost's loading screen,
+# which fills the game's presplash as desktop Ren'Py's presplash fills it (Droidtop/tracker#821).
+# The same kind of named bridge as the links' and the text's, dev.enginehost.ActivityLoading.
+loading_method = """    // ENGINEHOST_LOADING: Ren'Py's start-up progress (renpy/enginehost_loading.py) goes to
+    // Enginehost's loading screen through dev.enginehost.ActivityLoading. Looked up once; on an
+    // Enginehost without it, nothing is sent and its loading screen stays as it was.
+    private static volatile java.lang.reflect.Method enginehostLoadingMethod;
+    private static volatile boolean enginehostLoadingLookedUp;
+
+    public static void enginehostLoading(float done) {
+        android.app.Activity activity = mSingleton;
+        if (activity == null) return;
+        if (!enginehostLoadingLookedUp) {
+            synchronized (PythonSDLActivity.class) {
+                if (!enginehostLoadingLookedUp) {
+                    try {
+                        enginehostLoadingMethod = Class.forName("dev.enginehost.ActivityLoading")
+                            .getMethod("progress", android.app.Activity.class, float.class);
+                    } catch (Exception e) {
+                        Log.w("EnginehostRenPy", "This Enginehost takes no loading progress: " + e);
+                    }
+                    enginehostLoadingLookedUp = true;
+                }
+            }
+        }
+        java.lang.reflect.Method progress = enginehostLoadingMethod;
+        if (progress == null) return;
+        try {
+            progress.invoke(null, activity, done);
+        } catch (Exception e) {
+            Log.w("EnginehostRenPy", "The loading progress was not taken: " + e);
+        }
+    }
+
+"""
+if "ENGINEHOST_LOADING" not in source:
+    if links_anchor not in source:
+        raise SystemExit("Enginehost resource block missing; the loading route has no anchor")
+    source = source.replace(links_anchor, loading_method + links_anchor, 1)
+
 # One write, after every edit above. The save-path patch used to write the file
 # itself, so an edit made after it and not before it would be dropped in silence.
 activity.write_text(source, encoding="utf-8")

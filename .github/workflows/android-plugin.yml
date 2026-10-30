@@ -23,6 +23,14 @@ on:
         description: "Release tag (default: derived from the bundle id; testing adds -testing)"
         type: string
         default: ""
+      include_32_bit:
+        description: >-
+          Also keep RAPT's 32-bit libraries (armeabi-v7a, x86), for someone who
+          needs a 32-bit engine. Such a build is never signed or published: it
+          ends as the unsigned bundle inputs artifact (owner, 2026-10-30,
+          Droidtop/tracker#646). Official releases are 64-bit only.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -173,8 +181,11 @@ jobs:
           cp "$apk" build/unsigned/payload/runtime.apk
           unzip -q "$apk" 'classes*.dex' 'lib/*' -d build/unsigned/payload
           # And only those two: RAPT still builds armeabi-v7a, which the signing
-          # job's conformance check refuses (Droidtop/tracker#27, #646).
-          python3 enginehost/keep_64bit_abis.py build/unsigned/payload
+          # job's conformance check refuses (Droidtop/tracker#27, #646). A dispatch
+          # with include_32_bit keeps them, and is not signed.
+          if [ '${{ inputs.include_32_bit }}' != true ]; then
+            python3 enginehost/keep_64bit_abis.py build/unsigned/payload
+          fi
           # Every plugin ships arm64-v8a AND x86_64; fail here rather than
           # publish a bundle an x86_64 device cannot run.
           for abi in arm64-v8a x86_64; do
@@ -224,8 +235,10 @@ jobs:
 
   sign:
     # Enginehost's one signing mechanism, pinned by commit: the key never
-    # shares a runner with the build.
+    # shares a runner with the build. A 32-bit build is never signed, so
+    # nothing that needs this job (publish, unstable) runs for it either.
     needs: android
+    if: ${{ !inputs.include_32_bit }}
     permissions:
       contents: read
     uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a

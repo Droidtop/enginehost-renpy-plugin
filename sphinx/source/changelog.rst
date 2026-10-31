@@ -68,6 +68,11 @@ temporary save file is removed.
 Fixed the web presplash disappearing before display initialization finished.
 It now remains visible until the first frame is drawn.
 
+Ren'Py's framerate safeguard now limits framerate to at most 1.5 times the refresh rate of the window's display,
+or at least 90 fps, whichever is higher, when vsync is enabled. This kicks in when the framerate would otherwise
+exceed this limit. When the window is minimized or hidden, the framerate is limited to 5 fps. This only kicks in
+in situations where the video driver is not limiting the framerate properly.
+
 Live2D
 ------
 
@@ -199,6 +204,10 @@ of the statement that is currently executing or being predicted.
 The :class:`Confirm` action and :func:`renpy.confirm` function now take a `screen` argument, allowing
 a custom screen to be used instead of the default confirm screen.
 
+Focused displayables now determine the mouse cursor through their `_get_mouse` method.
+Buttons can inherit a cursor from their action's `get_mouse` method, and creator-defined
+displayables can override `_get_mouse`.
+
 The `changed` property of bars can now be supplied in addition to a bar value.
 
 Bars now take an `action` property, which is an action that is run when the bar value changes. Unlike `change`, `action`
@@ -294,6 +303,9 @@ The ability to apply zsync-based updates has been removed. This was an older upd
 The ability to create these updates will be removed in Ren'Py 8.7.0.
 
 Ren'Py's PC presplash system has been updated to support WEBP and AVIF images, in addition to PNG and JPG.
+
+When using the harfbuzz text shaper, fonts smaller than :var:`config.font_memory_buffer_size` (2 MB by default) are
+now loaded into memory, while larger fonts are read through SDL as needed.
 
 On all platforms except the web, Ren'Py now verifies TLS certificates against the operating system's trust store,
 using the truststore library, rather than the certificate bundle shipped with the certifi library. This applies to

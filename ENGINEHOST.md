@@ -40,10 +40,18 @@ chooses its variants, and it changes two things.
   `android`, `mobile`, `ios` and `emscripten` are false, and the shipped
   platform's flag is true. The engine's own flags (`renpy.android` on the
   package) are unchanged, so it still runs as the Android build it is.
-- **`config.variants`**: the variants that name a platform (`android`,
-  `mobile`, `ios`, `firetv`, `chromeos`) are taken out, and `pc` is added
-  last. The layout variants (`touch`, `small`, `medium`, `phone`, `tablet`,
-  `tv`) stay, so screens still fit the device (owner, 2026-10-23).
+- **`config.variants`**: what a desktop build has. The variants that name a
+  platform (`android`, `mobile`, `ios`, `firetv`, `chromeos`) and the
+  screen-size variants (`small`, `medium`, `phone`, `tablet`, `tv`) are taken
+  out, and `large` and `pc` are added last, as desktop Ren'Py has them. `touch`
+  stays (owner, 2026-10-23: "Desktop flags, keep touch layouts"). Until
+  2026-10-31 the size variants stayed too. Then a desktop game's GUI template
+  applied Ren'Py's phone overrides, which nobody shipping a desktop build had
+  laid out, on the RP5's 5.5-inch screen (Ren'Py calls anything under 6.95
+  inches `small`; BlueStacks reports `medium`): bigger interface text, a 400px
+  preferences column, and labels that wrapped under their buttons (Love & Sex:
+  Second Base's Options and Drug Store screens). Series patch
+  `0012-desktop-size-variants.patch`.
 
 A game's options can choose Android instead: `"platform": "android"` in its
 enginehost.json `options`, which the activity passes as
@@ -121,6 +129,24 @@ as a whole (Droidtop/tracker#821: Bare Witness took 176 s on the console's SD ca
 goes through; reads on an open file are not counted, since they do not cross Enginehost's
 sandbox broker. It prints no paths. The numbers say which calls a slow start is made of, so the
 start is cut at its cause rather than guessed at.
+
+## Start-up path checks are answered from Ren'Py's own folder scan (2026-10-31)
+
+The counts above gave the cause (Droidtop/tracker#853, Enginehost dev-622 on the RP5): "Loading
+script" took 52.8 s, and 36.6 s of it were 3,490 stats, about 10.5 ms each, since a stat of a game
+on the SD card crosses the broker and Android's FUSE layer one path component at a time. Most of
+them ask what Ren'Py's own scan of the game folder had answered a moment before: whether a `.rpy`
+or `_ren.py` sits beside each `.rpyc` a released game ships, and the same `.rpyc` again.
+
+Series patch 0011 (`renpy/enginehost_listings.py`, installed by `enginehost_platform.present()`
+after 0010, so what it answers is not counted as a file call) keeps every complete `os.scandir`
+and `os.listdir` of a folder until "Loading script" ends. Meanwhile a stat or lstat of a name no
+kept listing holds, in any case (Android's shared storage finds a name in any case), fails with
+ENOENT without a call, and a stat that succeeded is answered again from its first result.
+Anything this process creates, writes, renames or removes drops what is kept for that folder, so
+every answer is what the filesystem would give for what this process did. Only absolute text
+paths are answered. At the end of the phase it prints how many checks it answered, and keeps
+nothing after.
 
 ## 32-bit engines only on request, never published (2026-10-30)
 

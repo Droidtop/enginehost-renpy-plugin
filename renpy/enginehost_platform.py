@@ -7,10 +7,13 @@
 # flags in renpy.exports (the "renpy" every script uses), and no "android",
 # "mobile" or device variant in config.variants, with "pc" added. The
 # engine itself keeps reading its own flags (renpy.android on the package),
-# so it still runs as the Android build it is, and the layout variants
-# (touch, small, medium, phone, tablet, tv) stay, so screens still fit the
-# device (owner, 2026-10-23). A game's options can choose Android instead:
-# {"platform": "android"}.
+# so it still runs as the Android build it is. "touch" stays (owner,
+# 2026-10-23: "Desktop flags, keep touch layouts"), but the screen-size
+# variants a desktop build never has (small, medium, phone, tablet, tv) give
+# way to the "large" a desktop build gets: a desktop game's GUI template still
+# carries Ren'Py's untested phone overrides, which on a screen under 6.95
+# inches enlarged its text and narrowed its menus. A game's options can
+# choose Android instead: {"platform": "android"}.
 from __future__ import print_function
 
 import json
@@ -21,9 +24,14 @@ import renpy.enginehost_links
 import renpy.enginehost_text
 import renpy.enginehost_loading
 import renpy.enginehost_files
+import renpy.enginehost_listings
 
 # Variants that say which platform this is, not how big or touchable it is.
 PLATFORM_VARIANTS = ("android", "mobile", "ios", "firetv", "chromeos")
+
+# Variants that say how big the screen is. A desktop build has only "large"
+# (renpy/main.py choose_variants), so these are replaced by it.
+SIZE_VARIANTS = ("small", "medium", "large", "phone", "tablet", "tv")
 
 FLAGS = ("android", "ios", "emscripten", "mobile", "windows", "macintosh", "linux")
 
@@ -44,11 +52,11 @@ def shipped_platform(game_path):
 
 
 def presented_variants(variants):
-    """config.variants with the platform's own names taken out and "pc" added before the final None."""
-    kept = [v for v in variants if v not in PLATFORM_VARIANTS]
-    if "pc" not in kept:
-        at = kept.index(None) if None in kept else len(kept)
-        kept.insert(at, "pc")
+    """config.variants as a desktop build has them: the platform's and the screen size's own names
+    taken out, then "large" and "pc" before the final None. "touch" is kept."""
+    kept = [v for v in variants if v not in PLATFORM_VARIANTS and v not in SIZE_VARIANTS and v != "pc"]
+    at = kept.index(None) if None in kept else len(kept)
+    kept[at:at] = ["large", "pc"]
     return kept
 
 
@@ -69,6 +77,7 @@ def present():
     renpy.enginehost_text.install()
     renpy.enginehost_loading.install()
     renpy.enginehost_files.install()
+    renpy.enginehost_listings.install()
     if chosen(os.environ.get("ENGINEHOST_ENGINE_OPTIONS")) == "android":
         print("Enginehost: presenting Android to the game, as chosen for it")
         return

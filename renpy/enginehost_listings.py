@@ -1,0 +1,209 @@
+# Enginehost: answers Ren'Py's start-up path checks from the folder listings it has already made
+# (Droidtop/tracker#853). On the console, "Loading script" spent 36.6 s of its 52.8 s in 3,490 stats,
+# about 10.5 ms each: every call that names a file crosses the sandbox broker and, for a game on
+# removable storage, Android's FUSE layer, one component at a time. Most of those stats ask whether
+# a file exists that Ren'Py's own scan of the game folder, made a moment earlier, already answered:
+# a .rpy or _ren.py beside each .rpyc a released game ships, and the same .rpyc asked about again.
+#
+# From install until the end of "Loading script", every complete os.scandir or os.listdir of a
+# folder is kept as that folder's names. A stat or lstat of a name a kept folder does not hold (or
+# under a folder a kept listing does not hold) fails with ENOENT without a call, and a stat that
+# succeeded is answered again from its first result. Anything this process creates, writes,
+# renames or removes drops what is kept for that folder, so the answers stay what the filesystem
+# would say for everything this process does. Only absolute text paths are answered; any other
+# call goes through. Game paths are never printed.
+from __future__ import print_function
+
+import errno
+import os
+
+import renpy
+
+try:
+    import __builtin__ as _builtins  # Python 2 (Ren'Py 7)
+except ImportError:
+    import builtins as _builtins  # Python 3 (Ren'Py 8)
+
+try:
+    _text = (str, unicode)  # Python 2
+except NameError:
+    _text = (str,)
+
+# Folder -> the names its last complete listing held, lower-cased, while active. Android's shared
+# storage finds a name in any case, so only a name no case of which is listed is missing.
+_listings = {}
+# (path, follows links) -> the stat result it answered, while active.
+_stats = {}
+_active = [False]
+_answered = [0]
+
+_WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | getattr(os, "O_APPEND", 0)
+
+
+def _key(path):
+    """The normalized absolute text path a call names, or None when it is not one to answer."""
+    if not isinstance(path, _text) or not os.path.isabs(path):
+        return None
+    return os.path.normpath(path)
+
+
+def _missing(path):
+    """Whether a kept listing says [path] does not exist: its folder's, or an ancestor's."""
+    while True:
+        folder, name = os.path.split(path)
+        if not name or folder == path:
+            return False
+        names = _listings.get(folder)
+        if names is not None:
+            return name.lower() not in names
+        path = folder
+
+
+def _forget(path):
+    """Something at [path] changed: nothing kept for its folder is trusted any more."""
+    key = _key(path)
+    if key is None:
+        _listings.clear()
+        _stats.clear()
+        return
+    folder = os.path.dirname(key)
+    _listings.pop(folder, None)
+    _listings.pop(key, None)
+    for kept in [k for k in _stats if k[0] == key or k[0].startswith(folder + os.sep) or k[0] == folder]:
+        del _stats[kept]
+
+
+class _Listing(object):
+    """os.scandir's iterator, keeping the names it gave once it has given them all."""
+
+    def __init__(self, entries, folder):
+        self._entries = entries
+        self._folder = folder
+        self._names = set()
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        try:
+            entry = next(self._entries)
+        except StopIteration:
+            if self._folder is not None and _active[0]:
+                _listings[self._folder] = self._names
+            raise
+        self._names.add(entry.name.lower())
+        return entry
+
+    next = __next__  # Python 2
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    def close(self):
+        close = getattr(self._entries, "close", None)
+        if close:
+            close()
+
+
+def _wrap_scandir(call):
+    def scandir(path="."):
+        return _Listing(iter(call(path)), _key(path))
+    return scandir
+
+
+def _wrap_listdir(call):
+    def listdir(path="."):
+        names = call(path)
+        key = _key(path)
+        if key is not None and _active[0]:
+            _listings[key] = set(n.lower() for n in names)
+        return names
+    return listdir
+
+
+def _wrap_stat(call, follows):
+    def stat(path, *args, **kwargs):
+        if not _active[0] or args or kwargs.get("dir_fd") is not None:
+            return call(path, *args, **kwargs)
+        key = _key(path)
+        if key is None:
+            return call(path, *args, **kwargs)
+        follow = follows and kwargs.get("follow_symlinks", True)
+        kept = _stats.get((key, follow))
+        if kept is not None:
+            _answered[0] += 1
+            return kept
+        if _missing(key):
+            _answered[0] += 1
+            raise OSError(errno.ENOENT, os.strerror(errno.ENOENT), path)
+        result = call(path, *args, **kwargs)
+        _stats[(key, follow)] = result
+        return result
+    return stat
+
+
+def _wrap_changing(call, *positions):
+    """A call that changes the paths in [positions]: it drops what is kept for them first."""
+    def changing(*args, **kwargs):
+        if _active[0]:
+            for i in positions:
+                if i < len(args):
+                    _forget(args[i])
+        return call(*args, **kwargs)
+    return changing
+
+
+def _wrap_open(call):
+    def open_(file, mode="r", *args, **kwargs):
+        if _active[0] and any(c in mode for c in "wax+"):
+            _forget(file)
+        return call(file, mode, *args, **kwargs)
+    return open_
+
+
+def _wrap_os_open(call):
+    def os_open(path, flags, *args, **kwargs):
+        if _active[0] and flags & _WRITE_FLAGS:
+            _forget(path)
+        return call(path, flags, *args, **kwargs)
+    return os_open
+
+
+def _stop():
+    if _active[0]:
+        _active[0] = False
+        _listings.clear()
+        _stats.clear()
+        print("Enginehost: %d path checks answered from folder listings during start-up" % _answered[0])
+
+
+def install():
+    """Answers start-up path checks from folder listings, under Enginehost only."""
+    if _active[0] or not os.environ.get("ENGINEHOST_GAME_PATH"):
+        return
+    _active[0] = True
+    if hasattr(os, "scandir"):
+        os.scandir = _wrap_scandir(os.scandir)
+    os.listdir = _wrap_listdir(os.listdir)
+    os.stat = _wrap_stat(os.stat, True)
+    os.lstat = _wrap_stat(os.lstat, False)
+    os.open = _wrap_os_open(os.open)
+    _builtins.open = _wrap_open(_builtins.open)
+    for name in ("remove", "unlink", "rmdir", "mkdir"):
+        setattr(os, name, _wrap_changing(getattr(os, name), 0))
+    for name in ("rename", "replace"):
+        if hasattr(os, name):
+            setattr(os, name, _wrap_changing(getattr(os, name), 0, 1))
+
+    original_clock = renpy.main.log_clock
+
+    def log_clock(s):
+        original_clock(s)
+        if s.rstrip(".") == "Loading script":
+            _stop()
+
+    renpy.main.log_clock = log_clock

@@ -11,6 +11,7 @@ everything released so far is listed under that one heading.
 ## [Unreleased]
 
 ### Fixed
+- On a screen under 6.95 inches (the RP5's 5.5-inch one), a desktop Ren'Py game drew its menus with the GUI template's phone sizes: bigger interface text, a narrower preferences column, labels running under their buttons. Its script now sees the screen-size variant a desktop build has (`large`, with `pc`), not `small`/`phone` or `medium`/`tablet`; `touch` stays.
 - A game with Live2D models (Love & Sex: Second Base) crashed the Ren'Py 7.5+ and 8.x cores with a segfault when the Live2D Cubism Core library was not present: the loader remembered a failed load as a success, so the second attempt called a NULL function. A failed load now stays an error the game can show, and 8.5 no longer swallows it.
 
 ### Changed

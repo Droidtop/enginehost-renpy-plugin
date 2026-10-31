@@ -51,10 +51,18 @@ chooses its variants, and it changes two things.
   `android`, `mobile`, `ios` and `emscripten` are false, and the shipped
   platform's flag is true. The engine's own flags (`renpy.android` on the
   package) are unchanged, so it still runs as the Android build it is.
-- **`config.variants`**: the variants that name a platform (`android`,
-  `mobile`, `ios`, `firetv`, `chromeos`) are taken out, and `pc` is added
-  last. The layout variants (`touch`, `small`, `medium`, `phone`, `tablet`,
-  `tv`) stay, so screens still fit the device (owner, 2026-10-23).
+- **`config.variants`**: what a desktop build has. The variants that name a
+  platform (`android`, `mobile`, `ios`, `firetv`, `chromeos`) and the
+  screen-size variants (`small`, `medium`, `phone`, `tablet`, `tv`) are taken
+  out, and `large` and `pc` are added last, as desktop Ren'Py has them. `touch`
+  stays (owner, 2026-10-23: "Desktop flags, keep touch layouts"). Until
+  2026-10-31 the size variants stayed too. Then a desktop game's GUI template
+  applied Ren'Py's phone overrides, which nobody shipping a desktop build had
+  laid out, on the RP5's 5.5-inch screen (Ren'Py calls anything under 6.95
+  inches `small`; BlueStacks reports `medium`): bigger interface text, a 400px
+  preferences column, and labels that wrapped under their buttons (Love & Sex:
+  Second Base's Options and Drug Store screens). Series patch
+  `0011-desktop-size-variants.patch`.
 
 A game's options can choose Android instead: `"platform": "android"` in its
 enginehost.json `options`, which the activity passes as

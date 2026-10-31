@@ -122,6 +122,24 @@ goes through; reads on an open file are not counted, since they do not cross Eng
 sandbox broker. It prints no paths. The numbers say which calls a slow start is made of, so the
 start is cut at its cause rather than guessed at.
 
+## Start-up path checks are answered from Ren'Py's own folder scan (2026-10-31)
+
+The counts above gave the cause (Droidtop/tracker#853, Enginehost dev-622 on the RP5): "Loading
+script" took 52.8 s, and 36.6 s of it were 3,490 stats, about 10.5 ms each, since a stat of a game
+on the SD card crosses the broker and Android's FUSE layer one path component at a time. Most of
+them ask what Ren'Py's own scan of the game folder had answered a moment before: whether a `.rpy`
+or `_ren.py` sits beside each `.rpyc` a released game ships, and the same `.rpyc` again.
+
+Series patch 0011 (`renpy/enginehost_listings.py`, installed by `enginehost_platform.present()`
+after 0010, so what it answers is not counted as a file call) keeps every complete `os.scandir`
+and `os.listdir` of a folder until "Loading script" ends. Meanwhile a stat or lstat of a name no
+kept listing holds, in any case (Android's shared storage finds a name in any case), fails with
+ENOENT without a call, and a stat that succeeded is answered again from its first result.
+Anything this process creates, writes, renames or removes drops what is kept for that folder, so
+every answer is what the filesystem would give for what this process did. Only absolute text
+paths are answered. At the end of the phase it prints how many checks it answered, and keeps
+nothing after.
+
 ## 32-bit engines only on request, never published (2026-10-30)
 
 Official Ren'Py cores ship arm64-v8a and x86_64 only. RAPT still builds armeabi-v7a, and

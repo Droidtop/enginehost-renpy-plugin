@@ -11,6 +11,7 @@ everything released so far is listed under that one heading.
 ## [Unreleased]
 
 ### Fixed
+- Ren'Py games load faster from a folder on the console's storage (Droidtop/tracker#853): of "Loading script"'s 52.8 s on the RP5, 36.6 s were 3,490 stats, about 10.5 ms each through the sandbox broker and the SD card. Until the end of that phase, the path checks Ren'Py's own folder scan already answered (a `.rpy` or `_ren.py` beside each `.rpyc`, the same `.rpyc` asked about twice) are answered from that scan instead of the card. Anything Ren'Py writes, renames or removes drops what is kept for its folder (patch 0011; 1.0.18, 7.3's 0.9.17, 7.8's 1.0.20).
 - A game with Live2D models (Love & Sex: Second Base) crashed the Ren'Py 7.5+ and 8.x cores with a segfault when the Live2D Cubism Core library was not present: the loader remembered a failed load as a success, so the second attempt called a NULL function. A failed load now stays an error the game can show, and 8.5 no longer swallows it.
 
 ### Changed

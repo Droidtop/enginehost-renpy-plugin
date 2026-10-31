@@ -1,0 +1,541 @@
+#!/usr/bin/env python3
+"""Apply enginehost's Android wrapper to an unpacked official RAPT tree."""
+
+import json
+import re as _re
+import shutil
+import sys
+from pathlib import Path
+
+
+sdk = Path(sys.argv[1]).resolve()
+runtime = sys.argv[2]
+package = sys.argv[3]
+plugin_version = sys.argv[4]
+# The identity of the packed engine, not of the release. See the private_version
+# patch below: this string must differ whenever the engine files differ, so the
+# caller passes something derived from the commit, and the plugin version
+# (which stays put for a whole release stream) is never good enough.
+private_version = sys.argv[5] if len(sys.argv) > 5 else plugin_version
+root = Path(__file__).resolve().parent
+
+java_dir = sdk / "rapt/prototype/renpyandroid/src/main/java/org/renpy/android"
+resource_manager = java_dir / "ResourceManager.java"
+resource_source = resource_manager.read_text(encoding="utf-8")
+resource_anchor = '        return res.getIdentifier(name, kind, act.getPackageName());\n'
+resource_replacement = f'''        String enginehostPackage = act.getIntent().getStringExtra(
+            "dev.enginehost.runtime.RESOURCE_PACKAGE");
+        return res.getIdentifier(name, kind,
+            enginehostPackage != null ? enginehostPackage : "{package}");
+'''
+if "dev.enginehost.runtime.RESOURCE_PACKAGE" not in resource_source:
+    if resource_anchor not in resource_source:
+        raise SystemExit("RAPT ResourceManager integration anchor changed")
+    resource_manager.write_text(
+        resource_source.replace(resource_anchor, resource_replacement, 1), encoding="utf-8")
+
+# A loaded resource APK can share package id 0x7f with Enginehost. Android then
+# exposes its assets but may not resolve its string resources by name. RAPT only
+# uses private_version to decide whether private.mp3 needs extracting, so bind
+# that value to this build instead of depending on package ids.
+#
+# It has to be the identity of the packed engine. RAPT's own value is the md5 of
+# private.mp3, so any change to the engine unpacks a fresh copy. This returned
+# the plugin version instead, which does not move for a whole release stream, so
+# after the first Ren'Py bundle a person ever launched, unpackData compared
+# "0.1" against the "0.1" already on disk and skipped the unpack forever: every
+# later build kept running the engine extracted that first time. Java changes
+# still took effect (they ride in the dex, which Enginehost class-loads afresh),
+# which is why patched main.py never ran while the wrapper's own log lines did.
+# The lines share one extraction directory too, the host app's files dir, so a
+# constant per line also let 7.3's engine serve a launch of 7.5.
+resource_source = resource_manager.read_text(encoding="utf-8")
+version_anchor = '''    public String getString(String name) {
+
+        try {
+'''
+version_replacement = f'''    public String getString(String name) {{
+
+        if ("private_version".equals(name) &&
+                act.getIntent().hasExtra("dev.enginehost.runtime.RESOURCE_APKS")) {{
+            return "{private_version}";
+        }}
+
+        try {{
+'''
+if "dev.enginehost.runtime.RESOURCE_APKS" not in resource_source:
+    if version_anchor not in resource_source:
+        raise SystemExit("RAPT ResourceManager version anchor changed")
+    resource_manager.write_text(
+        resource_source.replace(version_anchor, version_replacement, 1), encoding="utf-8")
+
+activity = java_dir / "PythonSDLActivity.java"
+source = activity.read_text(encoding="utf-8")
+if "ENGINEHOST_RESOURCE_APKS" not in source:
+    # Anchor on an import every supported RAPT has. VibrationEffect was the
+    # old anchor and 8.1's RAPT does not import it, so the replace quietly
+    # did nothing while the code below still went in, and the build failed
+    # much later saying it could not find ParcelFileDescriptor. Vibrator is
+    # present in every RAPT this wrapper targets. Check it, so a future move
+    # fails here and says so rather than as a mystery symbol error.
+    import_anchor = "import android.os.Vibrator;\n"
+    if import_anchor not in source:
+        raise SystemExit("RAPT PythonSDLActivity import anchor changed")
+    source = source.replace(
+        import_anchor,
+        """import android.os.Vibrator;
+import android.os.ParcelFileDescriptor;
+import android.content.res.loader.ResourcesLoader;
+import android.content.res.loader.ResourcesProvider;
+""",
+        1,
+    )
+    marker = '''    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        Log.v("python", "onCreate()");
+'''
+    replacement = '''    // ENGINEHOST_RESOURCE_APKS: attach the signed RAPT resource APK before SDL
+    // asks AssetManager to unpack Python and Ren'Py runtime files.
+    private void attachEnginehostResources() {
+        Log.i("EnginehostRenPy", "Attaching runtime resources");
+        java.util.ArrayList<String> paths = getIntent().getStringArrayListExtra(
+            "dev.enginehost.runtime.RESOURCE_APKS");
+        if (paths == null) {
+            Log.e("EnginehostRenPy", "Runtime resource APK list is missing");
+            return;
+        }
+        for (String path : paths) {
+            try {
+                if (Build.VERSION.SDK_INT >= 30) {
+                    ParcelFileDescriptor descriptor = ParcelFileDescriptor.open(
+                        new File(path), ParcelFileDescriptor.MODE_READ_ONLY);
+                    ResourcesProvider provider = ResourcesProvider.loadFromApk(descriptor);
+                    ResourcesLoader loader = new ResourcesLoader();
+                    loader.addProvider(provider);
+                    getResources().addLoaders(loader);
+                    Log.i("EnginehostRenPy", "Attached runtime resource APK " + path);
+                } else {
+                    java.lang.reflect.Method method = getAssets().getClass().getMethod(
+                        "addAssetPath", String.class);
+                    if (((Integer) method.invoke(getAssets(), path)) == 0) {
+                        throw new IllegalStateException("could not attach " + path);
+                    }
+                }
+            } catch (Exception e) {
+                throw new IllegalStateException("Could not attach Enginehost runtime resources", e);
+            }
+        }
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        Log.i("EnginehostRenPy", "PythonSDLActivity.onCreate class=" + getClass().getName());
+        attachEnginehostResources();
+        Log.i("EnginehostRenPy", "Calling SDLActivity.onCreate");
+        Log.v("python", "onCreate()");
+'''
+    if marker not in source:
+        # Older RAPTs (7.3) open onCreate without the python log line; attach
+        # the resources as the first statement there instead.
+        bare_marker = '''    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+'''
+        if bare_marker not in source:
+            raise SystemExit("RAPT resource attachment anchor changed")
+        marker = bare_marker
+        replacement = replacement.replace('        Log.v("python", "onCreate()");' + chr(10), '')
+    source = source.replace(marker, replacement, 1)
+apk_anchor = '''        try {
+            appInfo = packMgmr.getApplicationInfo(getPackageName(), 0);
+            apkFilePath = appInfo.sourceDir;
+        } catch (NameNotFoundException e) {
+            apkFilePath = "";
+        }
+'''
+apk_replacement = '''        java.util.ArrayList<String> enginehostResourceApks = getIntent().getStringArrayListExtra(
+            "dev.enginehost.runtime.RESOURCE_APKS");
+        if (enginehostResourceApks != null && !enginehostResourceApks.isEmpty()) {
+            apkFilePath = enginehostResourceApks.get(0);
+        } else {
+            try {
+                appInfo = packMgmr.getApplicationInfo(getPackageName(), 0);
+                apkFilePath = appInfo.sourceDir;
+            } catch (NameNotFoundException e) {
+                apkFilePath = "";
+            }
+        }
+'''
+if apk_anchor not in source:
+    raise SystemExit("RAPT APK path integration anchor changed")
+source = source.replace(apk_anchor, apk_replacement, 1)
+# Each Ren'Py line gets its own extracted engine. RAPT unpacks private.mp3
+# into getFilesDir(), and under enginehost that is the host application's own
+# files dir, shared by all eleven lines: whichever line launched last owned the
+# tree, and launching another line had to extract over it again, so switching
+# lines meant a re-extraction nearly every time. Overriding getFilesDir() on the
+# activity moves the whole engine tree rather than only the unpack target: RAPT
+# reads it for the unpack, for ANDROID_PRIVATE, and on the 7.3 line for
+# PYTHONHOME and PYTHONPATH as well, and all of those must name one directory.
+# About 11 MB per line, and only for lines a person actually launches.
+# A plain RAPT build of this tree carries no resource APK list and keeps the
+# stock files dir, which is what a standalone Ren'Py APK wants.
+series = ".".join(runtime.split(".")[:2])
+files_dir_anchor = "    public native void nativeSetEnv(String variable, String value);" + chr(10)
+files_dir_addition = f"""
+    // ENGINEHOST_PRIVATE_DIR: one engine tree per Ren'Py line, under the host's
+    // files dir, so the lines stop extracting over each other.
+    private File enginehostFilesDir = null;
+
+    @Override
+    public File getFilesDir() {{
+        if (enginehostFilesDir != null) {{
+            return enginehostFilesDir;
+        }}
+
+        File stock = super.getFilesDir();
+        Intent enginehostIntent = getIntent();
+        if (enginehostIntent == null || enginehostIntent.getStringArrayListExtra(
+                "dev.enginehost.runtime.RESOURCE_APKS") == null) {{
+            return stock;
+        }}
+
+        // ENGINEHOST_RUNTIME_FOLDER: Enginehost unpacked this line's runtime from the verified
+        // bundle before any of this code ran, and checks it on every launch (its manifest's
+        // "unpack"). It is read-only under the lockdown, so nothing here unpacks or writes it.
+        String enginehostRuntime = enginehostIntent.getStringExtra("dev.enginehost.runtime.RUNTIME_FOLDER");
+        if (enginehostRuntime != null) {{
+            enginehostFilesDir = new File(enginehostRuntime);
+            Log.i("EnginehostRenPy", "Engine directory (unpacked by Enginehost) " + enginehostFilesDir);
+            return enginehostFilesDir;
+        }}
+
+        File dir = new File(stock, "renpy-engine/{series}");
+        if (!dir.isDirectory() && !dir.mkdirs()) {{
+            throw new IllegalStateException("could not create engine directory " + dir);
+        }}
+
+        Log.i("EnginehostRenPy", "Engine directory " + dir);
+        enginehostFilesDir = dir;
+        return dir;
+    }}
+
+    // ENGINEHOST_EXTERNAL_FILES: RAPT's "public" folder (ANDROID_PUBLIC: log.txt and
+    // saves/security_keys.txt) is the launch's save folder, a system location meaning the
+    // folder the person chose, not Enginehost's shared external folder, which a locked-down
+    // core may not open (docs/engine-sandbox.md in Enginehost, "Ren'Py under lockdown").
+    @Override
+    public File getExternalFilesDir(String type) {{
+        Intent enginehostIntent = getIntent();
+        String save = enginehostIntent == null ? null
+            : enginehostIntent.getStringExtra("dev.enginehost.runtime.SAVE_PATH");
+        if (save == null) {{
+            return super.getExternalFilesDir(type);
+        }}
+        File dir = type == null ? new File(save) : new File(save, type);
+        if (!dir.isDirectory()) {{
+            dir.mkdirs();
+        }}
+        enginehostKeepSecurityKeys(dir);
+        return dir;
+    }}
+
+    // Saves made before this release are signed with the key in the old public folder. Copy
+    // it once, when it can be read (a launch that is not locked down), so they load without
+    // Ren'Py asking whether to trust them.
+    private void enginehostKeepSecurityKeys(File publicDir) {{
+        File keys = new File(publicDir, "saves/security_keys.txt");
+        if (keys.exists()) {{
+            return;
+        }}
+        File old = new File(android.os.Environment.getExternalStorageDirectory(),
+            "Android/data/" + getPackageName() + "/files/saves/security_keys.txt");
+        try {{
+            if (!old.isFile()) {{
+                return;
+            }}
+            keys.getParentFile().mkdirs();
+            try (java.io.InputStream in = new java.io.FileInputStream(old);
+                 java.io.OutputStream out = new java.io.FileOutputStream(keys)) {{
+                byte[] buffer = new byte[8192];
+                int read;
+                while ((read = in.read(buffer)) > 0) {{
+                    out.write(buffer, 0, read);
+                }}
+            }}
+            Log.i("EnginehostRenPy", "Kept the security keys of earlier saves");
+        }} catch (Exception e) {{
+            Log.w("EnginehostRenPy", "Could not keep the security keys of earlier saves: " + e);
+        }}
+    }}
+
+"""
+if files_dir_anchor not in source:
+    raise SystemExit("RAPT nativeSetEnv anchor changed")
+source = source.replace(files_dir_anchor, files_dir_addition + files_dir_anchor, 1)
+
+anchor = '        nativeSetEnv("ANDROID_OLD_PUBLIC", oldExternalStorage.getAbsolutePath());\n'
+addition = '''
+
+        String enginehostGamePath = getIntent().getStringExtra("dev.enginehost.runtime.PATH");
+        if (enginehostGamePath != null) {
+            File enginehostGameFolder = new File(enginehostGamePath);
+            if (!enginehostGameFolder.isDirectory()) {
+                throw new IllegalArgumentException("enginehost path is not a directory: " + enginehostGamePath);
+            }
+            nativeSetEnv("ENGINEHOST_GAME_PATH", enginehostGameFolder.getAbsolutePath());
+            // The runtime Enginehost unpacked is read-only to a locked-down core, so Python must not
+            // write or tidy bytecode there (the rig saw "refused unlink .../main.pyo").
+            nativeSetEnv("PYTHONDONTWRITEBYTECODE", "1");
+            String enginehostOptions = getIntent().getStringExtra("dev.enginehost.runtime.CALLER_CONFIG");
+            if (enginehostOptions != null) nativeSetEnv("ENGINEHOST_OPTIONS_JSON", enginehostOptions);
+            // The game's own options (its enginehost.json "options"): renpy/enginehost_platform.py
+            // reads "platform" there, to show the game Android instead of its desktop platform.
+            String enginehostEngineOptions = getIntent().getStringExtra("dev.enginehost.runtime.OPTIONS");
+            if (enginehostEngineOptions != null) nativeSetEnv("ENGINEHOST_ENGINE_OPTIONS", enginehostEngineOptions);
+            String enginehostSavePath = getIntent().getStringExtra("dev.enginehost.runtime.SAVE_PATH");
+            Log.i("EnginehostRenPy", "Save path extra: " + enginehostSavePath);
+            if (enginehostSavePath != null) {
+                File enginehostSaveFolder = new File(enginehostSavePath);
+                if (!enginehostSaveFolder.isDirectory() && !enginehostSaveFolder.mkdirs()) {
+                    throw new IllegalArgumentException("enginehost save path is not writable: " + enginehostSavePath);
+                }
+                nativeSetEnv("ENGINEHOST_SAVE_PATH", enginehostSaveFolder.getAbsolutePath());
+            }
+            // This game's own save folder, when the launching app gave one: the
+            // engine uses it as is (Droidtop/tracker#580).
+            String enginehostGameSavePath = getIntent().getStringExtra("dev.enginehost.runtime.GAME_SAVE_PATH");
+            if (enginehostGameSavePath != null) nativeSetEnv("ENGINEHOST_GAME_SAVE_PATH", enginehostGameSavePath);
+        }
+'''
+if "ENGINEHOST_GAME_PATH" not in source:
+    if anchor not in source:
+        raise SystemExit("RAPT PythonSDLActivity integration anchor changed")
+    source = source.replace(anchor, anchor + addition, 1)
+# A link the game opens (renpy/enginehost_links.py) is offered by Enginehost, never
+# opened by the engine (Enginehost docs/SPEC.md, "Links a game opens"). This core runs
+# its own Activity and has no EngineHost, so it reaches Enginehost's named bridge,
+# dev.enginehost.ActivityLinks, through reflection; the owner chose that route on
+# 2026-10-24 until Ren'Py moves onto the plugin transport.
+links_anchor = "    // ENGINEHOST_RESOURCE_APKS:"
+links_method = """    // ENGINEHOST_LINKS: a link the game opens (renpy/enginehost_links.py) is offered by
+    // Enginehost (dev.enginehost.ActivityLinks), never opened here. False when this
+    // Enginehost has no such route (an older one): then nothing opens.
+    public static boolean enginehostOpenLink(String url) {
+        android.app.Activity activity = mSingleton;
+        if (activity == null || url == null) return false;
+        try {
+            Class<?> links = Class.forName("dev.enginehost.ActivityLinks");
+            Object taken = links.getMethod("offer", android.app.Activity.class, String.class)
+                .invoke(null, activity, url);
+            return Boolean.TRUE.equals(taken);
+        } catch (Exception e) {
+            Log.w("EnginehostRenPy", "The link was not offered: " + e);
+            return false;
+        }
+    }
+
+"""
+if "ENGINEHOST_LINKS" not in source:
+    if links_anchor not in source:
+        raise SystemExit("Enginehost resource block missing; the link route has no anchor")
+    source = source.replace(links_anchor, links_method + links_anchor, 1)
+# The game's lines (renpy/enginehost_text.py) go to Enginehost's text services, which read
+# them aloud and translate them when the person turned that on (Enginehost docs/text-services.md).
+# The same kind of named bridge as the links', dev.enginehost.ActivityText; the owner chose it
+# on 2026-10-28 until Ren'Py moves onto the plugin transport.
+text_methods = """    // ENGINEHOST_TEXT: the game's lines (renpy/enginehost_text.py) go to Enginehost's text
+    // services through dev.enginehost.ActivityText. The methods are looked up once; on an
+    // Enginehost without them, nothing is sent and every line prints as the game wrote it.
+    private static volatile java.lang.reflect.Method enginehostEmitText;
+    private static volatile java.lang.reflect.Method enginehostReplaceTextMethod;
+    private static volatile boolean enginehostTextLookedUp;
+
+    private static synchronized void enginehostFindText() {
+        if (enginehostTextLookedUp) return;
+        enginehostTextLookedUp = true;
+        try {
+            Class<?> text = Class.forName("dev.enginehost.ActivityText");
+            enginehostEmitText = text.getMethod("emit", android.app.Activity.class, String.class);
+            enginehostReplaceTextMethod = text.getMethod("replace", String.class);
+        } catch (Exception e) {
+            Log.w("EnginehostRenPy", "This Enginehost takes no game text: " + e);
+        }
+    }
+
+    public static void enginehostText(String event) {
+        android.app.Activity activity = mSingleton;
+        if (activity == null || event == null) return;
+        enginehostFindText();
+        java.lang.reflect.Method emit = enginehostEmitText;
+        if (emit == null) return;
+        try {
+            emit.invoke(null, activity, event);
+        } catch (Exception e) {
+            Log.w("EnginehostRenPy", "A text event was not taken: " + e);
+        }
+    }
+
+    // The line in the person's language, or null to print it as the game wrote it. Never waits.
+    public static String enginehostReplaceText(String event) {
+        if (event == null) return null;
+        enginehostFindText();
+        java.lang.reflect.Method replace = enginehostReplaceTextMethod;
+        if (replace == null) return null;
+        try {
+            Object answer = replace.invoke(null, event);
+            return answer instanceof String ? (String) answer : null;
+        } catch (Exception e) {
+            Log.w("EnginehostRenPy", "No replacement was given: " + e);
+            return null;
+        }
+    }
+
+"""
+if "ENGINEHOST_TEXT" not in source:
+    if links_anchor not in source:
+        raise SystemExit("Enginehost resource block missing; the text route has no anchor")
+    source = source.replace(links_anchor, text_methods + links_anchor, 1)
+
+# Ren'Py's start-up progress (renpy/enginehost_loading.py) goes to Enginehost's loading screen,
+# which fills the game's presplash as desktop Ren'Py's presplash fills it (Droidtop/tracker#821).
+# The same kind of named bridge as the links' and the text's, dev.enginehost.ActivityLoading.
+loading_method = """    // ENGINEHOST_LOADING: Ren'Py's start-up progress (renpy/enginehost_loading.py) goes to
+    // Enginehost's loading screen through dev.enginehost.ActivityLoading. Looked up once; on an
+    // Enginehost without it, nothing is sent and its loading screen stays as it was.
+    private static volatile java.lang.reflect.Method enginehostLoadingMethod;
+    private static volatile boolean enginehostLoadingLookedUp;
+
+    public static void enginehostLoading(float done) {
+        android.app.Activity activity = mSingleton;
+        if (activity == null) return;
+        if (!enginehostLoadingLookedUp) {
+            synchronized (PythonSDLActivity.class) {
+                if (!enginehostLoadingLookedUp) {
+                    try {
+                        enginehostLoadingMethod = Class.forName("dev.enginehost.ActivityLoading")
+                            .getMethod("progress", android.app.Activity.class, float.class);
+                    } catch (Exception e) {
+                        Log.w("EnginehostRenPy", "This Enginehost takes no loading progress: " + e);
+                    }
+                    enginehostLoadingLookedUp = true;
+                }
+            }
+        }
+        java.lang.reflect.Method progress = enginehostLoadingMethod;
+        if (progress == null) return;
+        try {
+            progress.invoke(null, activity, done);
+        } catch (Exception e) {
+            Log.w("EnginehostRenPy", "The loading progress was not taken: " + e);
+        }
+    }
+
+"""
+if "ENGINEHOST_LOADING" not in source:
+    if links_anchor not in source:
+        raise SystemExit("Enginehost resource block missing; the loading route has no anchor")
+    source = source.replace(links_anchor, loading_method + links_anchor, 1)
+
+# One write, after every edit above. The save-path patch used to write the file
+# itself, so an edit made after it and not before it would be dropped in silence.
+activity.write_text(source, encoding="utf-8")
+
+# Enginehost attaches this APK's resources to the host's own Resources
+# object and refuses a bundle compiled at 0x7f, the host's own id, because
+# the host's table would win every lookup. RAPT generates app/build.gradle
+# from this template; compile the plugin's resources where the host will
+# never be, as the Godot bundle does.
+# Ren'Py 7.3's RAPT pulls Google's APK-expansion helpers from jcenter, which
+# stopped serving them; nothing else hosts them, so the build cannot resolve
+# com.danikula.expansion at all. Enginehost never builds an expansion APK: the
+# game is read from its own folder. Drop the dependency and the three classes
+# that use it. SDLActivity reaches the same library reflectively and copes with
+# it being absent, and the manifest entries sit behind RAPT's own expansion
+# switch, so nothing else has to change.
+library_gradle = sdk / "rapt/prototype/renpyandroid/build.gradle"
+if library_gradle.is_file():
+    source = library_gradle.read_text(encoding="utf-8")
+    if "com.danikula.expansion" in source:
+        kept = [line for line in source.splitlines(keepends=True) if "com.danikula.expansion" not in line]
+        library_gradle.write_text("".join(kept), encoding="utf-8")
+        for name in ("DownloaderActivity", "DownloaderService", "DownloaderAlarmReceiver"):
+            downloader = sdk / f"rapt/prototype/renpyandroid/src/main/java/org/renpy/android/{name}.java"
+            if downloader.is_file():
+                downloader.unlink()
+
+# jcenter is read-only and increasingly incomplete; the artifacts these older
+# RAPTs want are on Maven Central. Ask for both rather than only the dead one.
+for build_file in (sdk / "rapt/prototype/build.gradle", sdk / "rapt/templates/build.gradle"):
+    if build_file.is_file():
+        source = build_file.read_text(encoding="utf-8")
+        if "jcenter()" in source and "mavenCentral()" not in source:
+            build_file.write_text(source.replace("jcenter()", "mavenCentral()\n        jcenter()"), encoding="utf-8")
+
+# Ren'Py 7.3's RAPT builds with the 2018 Android Gradle plugin, whose AAPT2
+# has no --allow-reserved-package-id: it cannot compile this plugin's
+# resources anywhere but 0x7f, the one id Enginehost refuses. Give that line
+# the plugin and Gradle versions 7.4's own RAPT ships, which do support it.
+prototype_gradle = sdk / "rapt/prototype/build.gradle"
+if prototype_gradle.is_file():
+    source = prototype_gradle.read_text(encoding="utf-8")
+    if "com.android.tools.build:gradle:3." in source:
+        prototype_gradle.write_text(
+            _re.sub(r"com\.android\.tools\.build:gradle:3\.[0-9.]+", "com.android.tools.build:gradle:4.0.1", source),
+            encoding="utf-8")
+        wrapper = sdk / "rapt/prototype/gradle/wrapper/gradle-wrapper.properties"
+        if wrapper.is_file():
+            wrapper.write_text(
+                _re.sub(r"gradle-[0-9.]+-(all|bin)\.zip", "gradle-6.1.1-all.zip", wrapper.read_text(encoding="utf-8")),
+                encoding="utf-8")
+
+# The wrapper attaches its resource APK through ResourcesLoader, which arrived
+# in API 30; the code is guarded at runtime but still has to compile. RAPTs
+# older than that compile against 28, so raise just the compile target. The
+# minimum stays where the line put it.
+raised_compile_target = False
+for old_gradle in (sdk / "rapt/prototype/renpyandroid/build.gradle", sdk / "rapt/templates/app-build.gradle"):
+    if old_gradle.is_file():
+        source = old_gradle.read_text(encoding="utf-8")
+        replaced = _re.sub(r"compileSdkVersion 2[0-9]", "compileSdkVersion 30", source)
+        if replaced != source:
+            old_gradle.write_text(replaced, encoding="utf-8")
+            raised_compile_target = True
+
+# A 2019 lint reading a 2020 platform finds problems in Ren'Py's own Android
+# project that have nothing to do with this build, and by default that fails
+# the release. The build is a means to a signed bundle here, not a review of
+# upstream.
+if raised_compile_target:
+    app_gradle = sdk / "rapt/templates/app-build.gradle"
+    source = app_gradle.read_text(encoding="utf-8")
+    if "checkReleaseBuilds" not in source:
+        lint = "    lintOptions {" + chr(10) + "        checkReleaseBuilds false" + chr(10) + "        abortOnError false" + chr(10) + "    }" + chr(10)
+        app_gradle.write_text(source.replace("android {" + chr(10), "android {" + chr(10) + lint, 1), encoding="utf-8")
+
+gradle = sdk / "rapt/templates/app-build.gradle"
+source = gradle.read_text(encoding="utf-8")
+gradle_anchor = "android {\n"
+assert source.count(gradle_anchor) == 1, "RAPT app-build.gradle template changed shape"
+if "allow-reserved-package-id" not in source:
+    package_id_block = (
+        "    aaptOptions {\n"
+        "        additionalParameters \"--package-id\", \"0x80\", \"--allow-reserved-package-id\"\n"
+        "    }\n"
+    )
+    gradle.write_text(source.replace(gradle_anchor, gradle_anchor + package_id_block, 1), encoding="utf-8")
+
+res = sdk / "rapt/prototype/app/src/main/res"
+for directory in (root / "android/res").iterdir():
+    shutil.copytree(directory, res / directory.name, dirs_exist_ok=True)
+project = root / "template"
+android_json = json.loads((project / "android.json").read_text(encoding="utf-8"))
+android_json["package"] = package
+android_json["name"] = f"enginehost Ren'Py {runtime}"
+android_json["version"] = plugin_version
+(project / "android.json").write_text(json.dumps(android_json, indent=2) + "\n", encoding="utf-8")
+
+options = project / "game/options.rpy"
+source = options.read_text(encoding="utf-8")
+source = source.replace('define config.version = "0.1.0"', f'define config.version = "{plugin_version}"')
+source = source.replace('build.version = "0.1.0"', f'build.version = "{plugin_version}"')
+options.write_text(source, encoding="utf-8")

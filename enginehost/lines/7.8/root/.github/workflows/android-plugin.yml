@@ -1,0 +1,277 @@
+name: Build enginehost Ren'Py Android plugin
+
+on:
+  push:
+    branches: ["plugin/**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: >-
+          Promote this build to a GitHub Release on the chosen channel. Stable is
+          for a bundle that has been used with real games on hardware; testing
+          for one that runs games but has not been lived with. Every push
+          already publishes to the unstable channel by itself.
+        type: boolean
+        default: false
+      channel:
+        description: "Release channel for a promoted build"
+        type: choice
+        options: [stable, testing]
+        default: stable
+      tag:
+        description: "Release tag (default: derived from the bundle id; testing adds -testing)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# One agent push supersedes the previous one instead of racing it. Before
+# this, every push queued another full build and nothing cancelled the run
+# it had just obsoleted, so a five-push fix session burned five builds and
+# could email five failures for one problem. Keyed on the ref, so branches
+# and PRs never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    # Builds and packs the payload. No signing key and no write token here:
+    # the Ren'Py SDK and RAPT downloads, Gradle and its plugins run in this job
+    # (Enginehost docs/security/2026-09-24-ci-supply-chain.md).
+    runs-on: ubuntu-24.04
+    outputs:
+      runtime: ${{ steps.runtime.outputs.runtime }}
+      bundle: ${{ steps.pack.outputs.bundle }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Read pinned runtime
+        id: runtime
+        run: |
+          echo "runtime=$(jq -r .runtime enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          # The JDK the line's RAPT can build with: Gradle 4.4 (7.3) wants 8,
+          # Gradle 6.1 (7.4 to 7.6) wants 11, newer RAPTs take 21.
+          echo "java=$(jq -r '.java // 21' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          # Older RAPTs also need a slim SDK (platform and build-tools the template
+          # asks for) and, at 7.3, the Gradle task as a positional argument.
+          echo "platform=$(jq -r '.platform // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "build_tools=$(jq -r '.buildTools // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "build_command=$(jq -r '.buildCommand // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "ndk=$(jq -r '.ndk // empty' enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "release=$(jq -r .release enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "package=$(jq -r .package enginehost/runtime.json)" >> "$GITHUB_OUTPUT"
+          echo "plugin_version=$(jq -r .pluginVersion enginehost/bundle-metadata.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: ${{ steps.runtime.outputs.java }}
+      - name: Install the SDK parts an older RAPT builds against
+        if: ${{ steps.runtime.outputs.platform != '' }}
+        run: |
+          # sdkmanager itself needs a current JDK; the line's own JDK is what
+          # setup-java put on PATH, so borrow the runner's preinstalled 21.
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version 2>&1 | head -1
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install             "platforms;android-${{ steps.runtime.outputs.platform }}"             "build-tools;${{ steps.runtime.outputs.build_tools }}"             ${{ steps.runtime.outputs.ndk && format('"ndk;{0}"', steps.runtime.outputs.ndk) }} >/dev/null
+          # Today's sdkmanager writes package.xml entries (extension levels) that
+          # the 2018 Android Gradle plugin's schema rejects outright; drop them.
+          for f in "$ANDROID_HOME/platforms/android-${{ steps.runtime.outputs.platform }}/package.xml"                    "$ANDROID_HOME/build-tools/${{ steps.runtime.outputs.build_tools }}/package.xml"; do
+            [ -f "$f" ] && sed -i 's#<base-extension[^>]*/>##g; s#<extension-level>[^<]*</extension-level>##g' "$f"
+          done
+          # Ren'Py 7.3's launcher opens a window to dump the project before it
+          # builds; the runner has no display, so give it one.
+          sudo apt-get install -y -qq xvfb >/dev/null
+      - name: Restore official matching SDK and RAPT
+        run: |
+          release='${{ steps.runtime.outputs.release }}'
+          mkdir -p .ci
+          curl --fail --location --retry 3 --output .ci/sdk.zip \
+            "https://www.renpy.org/dl/$release/renpy-$release-sdk.zip"
+          curl --fail --location --retry 3 --output .ci/rapt.zip \
+            "https://www.renpy.org/dl/$release/renpy-$release-rapt.zip"
+          unzip -q .ci/sdk.zip -d .ci
+          unzip -q .ci/rapt.zip -d ".ci/renpy-$release-sdk"
+      - name: Apply this branch's engine and Android wrapper
+        run: |
+          release='${{ steps.runtime.outputs.release }}'
+          sdk=".ci/renpy-$release-sdk"
+          cp -R renpy/. "$sdk/renpy/"
+          # The last argument is what RAPT compares against the copy of the
+          # engine already unpacked on the device. It must change whenever the
+          # engine does, so it carries the commit; the runtime keeps the eleven
+          # lines apart, since they all unpack into one host files dir.
+          python3 enginehost/apply_android_integration.py "$sdk" \
+            '${{ steps.runtime.outputs.runtime }}' '${{ steps.runtime.outputs.package }}' \
+            '${{ steps.runtime.outputs.plugin_version }}' \
+            '${{ steps.runtime.outputs.runtime }}-${{ github.sha }}'
+          android_sdk="$ANDROID_HOME"
+          if [ -n '${{ steps.runtime.outputs.platform }}' ]; then
+            # An Android Gradle plugin of this age cannot read the runner's modern
+            # SDK layout; give it a slim SDK holding only what its template asks for.
+            platform='${{ steps.runtime.outputs.platform }}'
+            build_tools='${{ steps.runtime.outputs.build_tools }}'
+            android_sdk="$GITHUB_WORKSPACE/.ci/android-sdk"
+            mkdir -p "$android_sdk/platforms" "$android_sdk/build-tools"
+            ln -s "$ANDROID_HOME/platform-tools" "$android_sdk/platform-tools"
+            ln -s "$ANDROID_HOME/licenses" "$android_sdk/licenses"
+            ln -s "$ANDROID_HOME/platforms/android-$platform" "$android_sdk/platforms/android-$platform"
+            ln -s "$ANDROID_HOME/build-tools/$build_tools" "$android_sdk/build-tools/$build_tools"
+            if [ -n '${{ steps.runtime.outputs.ndk }}' ]; then
+              mkdir -p "$android_sdk/ndk"
+              ln -s "$ANDROID_HOME/ndk/${{ steps.runtime.outputs.ndk }}" "$android_sdk/ndk/${{ steps.runtime.outputs.ndk }}"
+            fi
+          fi
+          printf '%s' "$android_sdk" > "$sdk/rapt/sdk.txt"
+          # RAPT before 7.6 reads the project's settings from .android.json.
+          cp enginehost/template/android.json enginehost/template/.android.json
+          keytool -genkeypair -noprompt -keystore enginehost/template/android.keystore \
+            -storepass android -keypass android -alias android -keyalg RSA \
+            -keysize 2048 -validity 10000 -dname "CN=enginehost CI"
+          cp enginehost/template/android.keystore enginehost/template/bundle.keystore
+          if [ -n '${{ steps.runtime.outputs.platform }}' ]; then
+            # RAPT before 7.6 expects its "Install SDK" step to have created the
+            # Gradle project and written the SDK path and signing properties;
+            # 7.6 and later write them at build time. Lay them down here.
+            cp -R "$sdk/rapt/prototype/." "$sdk/rapt/project/"
+            cp enginehost/template/android.keystore "$sdk/rapt/android.keystore"
+            cp enginehost/template/android.keystore "$sdk/rapt/bundle.keystore"
+            for store in android bundle; do
+              file=local; [ "$store" = bundle ] && file=bundle
+              {
+                echo "sdk.dir=$android_sdk"
+                echo key.alias=android
+                echo key.store.password=android
+                echo key.alias.password=android
+                echo "key.store=$GITHUB_WORKSPACE/$sdk/rapt/$store.keystore"
+              } > "$sdk/rapt/project/$file.properties"
+            done
+          fi
+      - name: Build through this runtime's official RAPT
+        run: |
+          release='${{ steps.runtime.outputs.release }}'
+          mkdir -p dist
+          cd ".ci/renpy-$release-sdk"
+          export SDL_AUDIODRIVER=dummy
+          if [ -n '${{ steps.runtime.outputs.platform }}' ]; then run_with_display=xvfb-run; run_with_display_args=-a; fi
+          ${run_with_display:-} ${run_with_display_args:-} ./renpy.sh launcher android_build "$GITHUB_WORKSPACE/enginehost/template" ${{ steps.runtime.outputs.build_command }} \
+            --destination "$GITHUB_WORKSPACE/dist"
+          test -n "$(find "$GITHUB_WORKSPACE/dist" -maxdepth 1 -name '*.apk' -print -quit)"
+      - name: Pack the unsigned bundle inputs
+        id: pack
+        run: |
+          runtime='${{ steps.runtime.outputs.runtime }}'
+          series="$(printf '%s' "$runtime" | cut -d. -f1,2)"
+          line="$(printf '%s' "$series" | tr . _)"
+          apk="$(find dist -maxdepth 1 -name '*.apk' -print -quit)"
+          test -f "$apk"
+          mkdir -p build/unsigned/payload
+          cp "$apk" build/unsigned/payload/runtime.apk
+          unzip -q "$apk" 'classes*.dex' 'lib/*' -d build/unsigned/payload
+          # And only those two: RAPT still builds armeabi-v7a, which the signing
+          # job's conformance check refuses (Droidtop/tracker#27, #646).
+          python3 enginehost/keep_64bit_abis.py build/unsigned/payload
+          # Every plugin ships arm64-v8a AND x86_64; fail here rather than
+          # publish a bundle an x86_64 device cannot run.
+          for abi in arm64-v8a x86_64; do
+            test -n "$(ls build/unsigned/payload/lib/$abi 2>/dev/null)" || { echo "bundle has no $abi libraries"; exit 1; }
+          done
+          ls build/unsigned/payload/lib
+          cp enginehost/LICENSES.md build/unsigned/payload/LICENSES.md
+          # The stamp is the private_version the integration step gave RAPT, so a runtime Enginehost
+          # unpacked is the one RAPT would have (docs/engine-bundle-format.md in Enginehost, "unpack").
+          jq --arg runtime "$runtime" --arg series "$series" --arg line "$line" \
+            --arg stamp "${{ steps.runtime.outputs.runtime }}-${{ github.sha }}" '
+            .bundleId = ("dev.enginehost.renpy." + $line + ".v1") |
+            .capabilities[0].id = ("renpy-" + $series + "-v1") |
+            .capabilities[0].runtimeVersion = $runtime |
+            .capabilities[0].supportedSeries = [$series] |
+            .source.revision = ("plugin/" + $series) |
+            .gameWrites = ["game/saves", "game/cache"] |
+            .unpack = {apk: "runtime.apk", asset: "assets/private.mp3", stampFile: "private.version", stamp: $stamp} |
+            .lockdown = true
+          ' enginehost/bundle-metadata.json > build/unsigned/bundle-metadata.json
+          # Ren'Py 8.5's APK is multidex where 8.2 and 8.3 were not, and
+          # enginehost class-loads exactly the dex files this manifest
+          # declares. A hard-coded single entry would ship the rest inside
+          # the signed payload and never load them.
+          python3 - <<'DEXES'
+          import json, pathlib, re
+          payload = pathlib.Path('build/unsigned/payload')
+          def order(p):
+              m = re.fullmatch(r'classes(\d*)\.dex', p.name)
+              return int(m.group(1) or 1)
+          dexes = sorted(payload.glob('classes*.dex'), key=order)
+          assert dexes, 'no classes*.dex in the APK payload'
+          meta = pathlib.Path('build/unsigned/bundle-metadata.json')
+          data = json.loads(meta.read_text())
+          data['dexFiles'] = [d.name for d in dexes]
+          meta.write_text(json.dumps(data, indent=2) + '\n')
+          print('dexFiles =', data['dexFiles'])
+          DEXES
+          # A tar keeps the file modes the manifest signs; an artifact would not.
+          tar -cf build/unsigned.tar -C build/unsigned payload bundle-metadata.json
+          echo "bundle=dev.enginehost.renpy.$line.v1.enginehost.tar.xz" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: enginehost-renpy-${{ steps.runtime.outputs.runtime }}-v1-unsigned
+          path: build/unsigned.tar
+          if-no-files-found: error
+
+  sign:
+    # Enginehost's one signing mechanism, pinned by commit: the key never
+    # shares a runner with the build.
+    needs: android
+    permissions:
+      contents: read
+    uses: Droidtop/enginehost/.github/workflows/sign-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
+    with:
+      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
+      unsigned-artifact: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1-unsigned
+      bundle: ${{ needs.android.outputs.bundle }}
+      artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
+      channel: ${{ inputs.channel }}
+    secrets:
+      ENGINEHOST_SIGNING_KEY_PEM: ${{ secrets.ENGINEHOST_SIGNING_KEY_PEM }}
+      ENGINEHOST_CERTIFICATE_KEY_PEM: ${{ secrets.ENGINEHOST_CERTIFICATE_KEY_PEM }}
+
+  publish:
+    # Promotion is deliberate: a manual dispatch names the channel. Stable
+    # means used with real games on hardware; testing means it runs games
+    # but has not been lived with. Enginehost offers each person the channel
+    # they chose in Settings and every steadier one. The release logic lives
+    # once, in Droidtop/enginehost (Droidtop/tracker#196).
+    needs: [android, sign]
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
+    permissions:
+      contents: write
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
+    with:
+      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
+      artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
+      channel: ${{ inputs.channel }}
+      tag: ${{ inputs.tag }}
+    secrets:
+      PLATFORMS_DISPATCH_TOKEN: ${{ secrets.PLATFORMS_DISPATCH_TOKEN }}
+
+  unstable:
+    # Every green push that produced a signed bundle is published as-is on
+    # the unstable channel, replacing the previous one, so a person who opted
+    # into unstable in Enginehost sees each build the moment CI is done with
+    # it, and the build also gets its permanent history release. Branches
+    # whose build makes no bundle publish nothing.
+    needs: [android, sign]
+    if: ${{ github.event_name == 'push' }}
+    permissions:
+      contents: write
+    uses: Droidtop/enginehost/.github/workflows/publish-engine-bundle.yml@40913f9e6e34c6cc262d6ee18fa83138504a026a
+    with:
+      tooling-sha: 40913f9e6e34c6cc262d6ee18fa83138504a026a
+      artifact-name: enginehost-renpy-${{ needs.android.outputs.runtime }}-v1
+      channel: unstable
+    secrets:
+      PLATFORMS_DISPATCH_TOKEN: ${{ secrets.PLATFORMS_DISPATCH_TOKEN }}

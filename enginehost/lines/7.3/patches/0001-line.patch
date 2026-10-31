@@ -1,0 +1,145 @@
+diff --git a/renpy/bootstrap.py b/renpy/bootstrap.py
+index 8afc163b4a246a30840e0de542e2b8787b8776ea..f1f685cf69948293bc2ac4732f5066bb5319be20 100644
+--- a/renpy/bootstrap.py
++++ b/renpy/bootstrap.py
+@@ -204,7 +204,11 @@ def bootstrap(renpy_base):
+     if args.trace:
+         enable_trace(args.trace)
+ 
+-    if args.basedir:
++    enginehost_game_path = os.environ.get("ENGINEHOST_GAME_PATH")
++
++    if enginehost_game_path:
++        basedir = os.path.abspath(enginehost_game_path).decode(FSENCODING)
++    elif args.basedir:
+         basedir = os.path.abspath(args.basedir).decode(FSENCODING)
+     else:
+         basedir = renpy_base
+diff --git a/renpy/loader.py b/renpy/loader.py
+index f4823c3b15a386adbc752badf1e89c09e6350324..80794456f00f64cbd337f665059c79bf64874bc7 100644
+--- a/renpy/loader.py
++++ b/renpy/loader.py
+@@ -63,7 +63,25 @@ try:
+     import android.apk
+ 
+     expansion = os.environ.get("ANDROID_EXPANSION", None)
+-    if expansion is not None:
++    if os.environ.get("ENGINEHOST_GAME_PATH"):
++        # Under Enginehost the game is a folder on disk, and the APK's own
++        # assets/x-game is only the packaging template RAPT needs to build
++        # at all. It must never be a source of game files: a game whose
++        # scripts live in a subfolder has no game/script.rpy to shadow the
++        # template's, so the template's `label start` ("This runtime must be
++        # started programmatically by enginehost.") ran in place of the
++        # game's story, under the game's own main menu, and the template's
++        # options.rpy could name the game the same way (rig, 2026-09-17,
++        # DivineDawn 0.27b). Ren'Py's common files still come from the APK.
++        print("Enginehost: game files come from the game folder only.")
++
++        apks = [
++            android.apk.APK(prefix='assets/x-renpy/x-common/'),
++            ]
++
++        game_apks = [ ]
++
++    elif expansion is not None:
+         print("Using expansion file", expansion)
+ 
+         apks = [
+diff --git a/renpy/main.py b/renpy/main.py
+index c242f6db96bb92d2707a59d6c9e968eac299a06e..4324d725a1925298b6d807eb5c2a23ada9a01bab 100644
+--- a/renpy/main.py
++++ b/renpy/main.py
+@@ -324,7 +324,19 @@ def main():
+     if "RENPY_SEARCHPATH" in os.environ:
+         renpy.config.searchpath.extend(os.environ["RENPY_SEARCHPATH"].split("::"))
+ 
+-    if renpy.android:
++    if renpy.android and os.environ.get("ENGINEHOST_GAME_PATH"):
++        # Under Enginehost the game is a folder on disk, and bootstrap made
++        # it the basedir, so config.gamedir is that game's own game/. RAPT's
++        # branch below throws the searchpath away and searches only the
++        # app's public folder, so no archive in the game folder was ever
++        # found ("Couldn't find file 'fullgame.rpa'."). Search the game's
++        # own directory alone; Ren'Py's common files still come from the APK.
++        renpy.config.searchpath = [ renpy.config.gamedir ]
++        renpy.config.commondir = None
++
++        print("Enginehost searchpath: ", renpy.config.gamedir)
++
++    elif renpy.android:
+         renpy.config.searchpath = [ ]
+         renpy.config.commondir = None
+ 
+@@ -436,9 +448,43 @@ def main():
+     renpy.game.exception_info = 'After loading the script.'
+ 
+     # Find the save directory.
++    # Enginehost gives each engine one save folder, chosen by the person and
++    # handed to the runtime as ENGINEHOST_SAVE_PATH. Ren'Py names the game's
++    # own directory inside it exactly as it does on the desktop, so saves are
++    # reachable, survive an uninstall, and can be copied between devices.
++    enginehost_save_path = os.environ.get("ENGINEHOST_SAVE_PATH")
++    if os.environ.get("ENGINEHOST_GAME_PATH"):
++        # Under Enginehost the primary save directory is the folder the
++        # person chose in Enginehost (the shared save root, or Ren'Py's own
++        # root), with this game's own directory inside it named by
++        # config.save_directory -- exactly how Ren'Py places saves on a
++        # desktop (path_to_saves: <user save root>/<save_directory>). The
++        # game's own game/saves stays a second read/write location
++        # (savelocation.init adds it), as it is on a desktop, so saves made
++        # beside the game keep loading and keep being updated. Android's
++        # app-private folder is never used: RAPT assumed one game per app,
++        # so every game would share the same slots and persistent data.
++        #
++        # A game that names no save_directory has nothing to be told apart
++        # by inside a shared folder, so it saves beside itself only.
++        enginehost_game_save_path = os.environ.get("ENGINEHOST_GAME_SAVE_PATH")
++        if enginehost_game_save_path:
++            # The launching app gave this game's own save folder: Enginehost
++            # decides where saves go, and Ren'Py uses it as is (Droidtop/tracker#580).
++            renpy.config.savedir = enginehost_game_save_path
++        elif enginehost_save_path and renpy.config.save_directory:
++            renpy.config.savedir = os.path.join(enginehost_save_path, renpy.config.save_directory)
++        else:
++            renpy.config.savedir = os.path.join(renpy.config.gamedir, "saves")
++
+     if renpy.config.savedir is None:
+         renpy.config.savedir = __main__.path_to_saves(renpy.config.gamedir)  # E1101 @UndefinedVariable
+ 
++    renpy.display.log.write("Enginehost save path: %r; game path: %r; savedir: %r",
++        os.environ.get("ENGINEHOST_SAVE_PATH"), os.environ.get("ENGINEHOST_GAME_PATH"), renpy.config.savedir)
++    print("ENGINEHOST-SAVE: env save path %r; game path %r; savedir %r" % (
++        os.environ.get("ENGINEHOST_SAVE_PATH"), os.environ.get("ENGINEHOST_GAME_PATH"), renpy.config.savedir))
++
+     if renpy.game.args.savedir:  # @UndefinedVariable
+         renpy.config.savedir = renpy.game.args.savedir  # @UndefinedVariable
+ 
+diff --git a/renpy/savelocation.py b/renpy/savelocation.py
+index 0a5d28fa3bdeca7175f28d07c339ca9a78013c41..d8c0976ef4adedddc2a131edd312342801fde2e5 100644
+--- a/renpy/savelocation.py
++++ b/renpy/savelocation.py
+@@ -557,12 +557,21 @@ def init():
+     location.add(FileLocation(renpy.config.savedir))
+ 
+     # 2. Game-local savedir.
+-    if (not renpy.mobile) and (not renpy.macapp):
++    # Enginehost runs the desktop game tree in place even though Ren'Py is on
++    # Android; keep the game's own saves folder among the save locations.
++    enginehost_game_path = os.environ.get("ENGINEHOST_GAME_PATH")
++    if ((not renpy.mobile) and (not renpy.macapp)) or enginehost_game_path:
+         path = os.path.join(renpy.config.gamedir, "saves")
+-        location.add(FileLocation(path))
++        # The primary save directory may already be this folder; one location
++        # per folder, or every save would be written and listed twice.
++        if os.path.abspath(path) != os.path.abspath(renpy.config.savedir):
++            location.add(FileLocation(path))
+ 
+     # Scan the location once.
+     location.scan()
++    for enginehost_location in location.locations:
++        print("ENGINEHOST-SAVE: location %r active=%r" % (
++            getattr(enginehost_location, "directory", enginehost_location), enginehost_location.active))
+ 
+     renpy.loadsave.location = location
+ 

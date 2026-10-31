@@ -40,6 +40,11 @@ import __main__
 
 last_clock = time.time()
 
+# Imported with this module, before main() installs the game's importer:
+# from 8.4 that importer lists the game's modules on its first lookup and
+# keeps the list, so a lookup that early left the launcher without its own.
+import renpy.enginehost_platform
+
 
 def log_clock(s):
     global last_clock
@@ -367,6 +372,7 @@ def main():
 
     # Set up variants.
     choose_variants()
+    renpy.enginehost_platform.present()
     renpy.display.touch = "touch" in renpy.config.variants
 
     log_clock("Early init")
@@ -506,8 +512,42 @@ def main():
     renpy.game.exception_info = 'After loading the script.'
 
     # Find the save directory.
+    # Enginehost gives each engine one save folder, chosen by the person and
+    # handed to the runtime as ENGINEHOST_SAVE_PATH. Ren'Py names the game's
+    # own directory inside it exactly as it does on the desktop, so saves are
+    # reachable, survive an uninstall, and can be copied between devices.
+    enginehost_save_path = os.environ.get("ENGINEHOST_SAVE_PATH")
+    if os.environ.get("ENGINEHOST_GAME_PATH"):
+        # Under Enginehost the primary save directory is the folder the
+        # person chose in Enginehost (the shared save root, or Ren'Py's own
+        # root), with this game's own directory inside it named by
+        # config.save_directory -- exactly how Ren'Py places saves on a
+        # desktop (path_to_saves: <user save root>/<save_directory>). The
+        # game's own game/saves stays a second read/write location
+        # (savelocation.init adds it), as it is on a desktop, so saves made
+        # beside the game keep loading and keep being updated. Android's
+        # app-private folder is never used: RAPT assumed one game per app,
+        # so every game would share the same slots and persistent data.
+        #
+        # A game that names no save_directory has nothing to be told apart
+        # by inside a shared folder, so it saves beside itself only.
+        enginehost_game_save_path = os.environ.get("ENGINEHOST_GAME_SAVE_PATH")
+        if enginehost_game_save_path:
+            # The launching app gave this game's own save folder: Enginehost
+            # decides where saves go, and Ren'Py uses it as is (Droidtop/tracker#580).
+            renpy.config.savedir = enginehost_game_save_path
+        elif enginehost_save_path and renpy.config.save_directory:
+            renpy.config.savedir = os.path.join(enginehost_save_path, renpy.config.save_directory)
+        else:
+            renpy.config.savedir = os.path.join(renpy.config.gamedir, "saves")
+
     if renpy.config.savedir is None:
         renpy.config.savedir = __main__.path_to_saves(renpy.config.gamedir) # E1101 @UndefinedVariable
+
+    renpy.display.log.write("Enginehost save path: %r; game path: %r; savedir: %r",
+        enginehost_save_path, os.environ.get("ENGINEHOST_GAME_PATH"), renpy.config.savedir)
+    print("ENGINEHOST-SAVE: env save path %r; game path %r; savedir %r" % (
+        os.environ.get("ENGINEHOST_SAVE_PATH"), os.environ.get("ENGINEHOST_GAME_PATH"), renpy.config.savedir))
 
     if renpy.game.args.savedir: # @UndefinedVariable
         renpy.config.savedir = renpy.game.args.savedir # @UndefinedVariable

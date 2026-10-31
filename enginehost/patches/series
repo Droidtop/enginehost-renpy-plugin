@@ -9,3 +9,5 @@
 * 0008-report-text-to-enginehost.patch
 * 0009-report-loading-to-enginehost.patch
 * 0010-count-file-calls-per-phase.patch
+* 0011-answer-path-checks-from-listings.patch
+* 0012-desktop-size-variants.patch

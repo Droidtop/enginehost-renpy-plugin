@@ -1,0 +1,192 @@
+diff --git a/renpy/bootstrap.py b/renpy/bootstrap.py
+index da0e4d329eb6bc1b23527bb0fa89420b2e8dc2bc..e02a8fb60f51d0712067276e7590f561ef5304a6 100644
+--- a/renpy/bootstrap.py
++++ b/renpy/bootstrap.py
+@@ -249,7 +249,11 @@ def bootstrap(renpy_base):
+     if args.trace:
+         enable_trace(args.trace)
+ 
+-    if args.basedir:
++    enginehost_game_path = os.environ.get("ENGINEHOST_GAME_PATH")
++
++    if enginehost_game_path:
++        basedir = os.path.abspath(enginehost_game_path)
++    elif args.basedir:
+         basedir = os.path.abspath(args.basedir)
+         if not isinstance(basedir, str):
+             basedir = basedir.decode(FSENCODING)
+diff --git a/renpy/display/core.py b/renpy/display/core.py
+index 9fdee4346b1f9b10bc67db5d49c720fb8f92dedb..5f60b97efe4db97dfbe9b0a61b85def4315ddca4 100644
+--- a/renpy/display/core.py
++++ b/renpy/display/core.py
+@@ -1267,6 +1267,25 @@ class Interface(object):
+ 
+         make_draw("sw", "renpy.display.swdraw", "SWDraw")
+ 
++        # Enginehost: on Android, upload textures straight from the surface
++        # instead of through a pixel buffer object. gl2texture.pyx
++        # load_gltexture fills a PBO, calls glTexImage2D from it, then
++        # glUnmapBuffer on a buffer that was never mapped and glDeleteBuffers,
++        # all before anything has drawn the texture. On an Adreno 650 a movie
++        # (one full-screen texture per frame) came out with corrupted tiles and
++        # then died with a null dereference inside libGLESv2_adreno.so, called
++        # from the first draw of the new texture (load_gltexture's program.draw
++        # -> gl2shader.pyx glDrawElements) while the driver was working on the
++        # 1920-wide frame: the driver still reads the PBO at that draw. Ren'Py's
++        # own direct path (the one it takes for ANGLE and the web) copies the
++        # pixels inside glTexImage2D. GL2Draw.angle selects only that path in
++        # this line, and the module is compiled in, so the switch is made here.
++        # ENGINEHOST_RENPY_TEXTURE_PBO=1 restores the PBO path.
++        if renpy.android and os.environ.get("ENGINEHOST_GAME_PATH") and "gles2" in draw_objects:
++            if os.environ.get("ENGINEHOST_RENPY_TEXTURE_PBO") != "1":
++                draw_objects["gles2"].angle = True
++                renpy.display.log.write("Enginehost: textures upload without a pixel buffer object.")
++
+         rv = [ ]
+ 
+         def append_draw(name):
+diff --git a/renpy/display/video.py b/renpy/display/video.py
+index 7f77aa21a2fee664536f1c0ce73a8e611fb7a344..8b987827654cf6f7c3f0ae46e8be0e44a95338f3 100644
+--- a/renpy/display/video.py
++++ b/renpy/display/video.py
+@@ -23,6 +23,7 @@ from __future__ import division, absolute_import, with_statement, print_function
+ from renpy.compat import PY2, basestring, bchr, bord, chr, open, pystr, range, round, str, tobytes, unicode # *
+ 
+ import collections
++import os
+ import re
+ 
+ import renpy
+@@ -185,7 +186,25 @@ def get_movie_texture(channel, mask_channel=None, side_mask=False, mipmap=None):
+ 
+     if surf is not None:
+         renpy.display.render.mutated_surface(surf)
+-        tex = renpy.display.draw.load_texture(surf, True, { "mipmap" : mipmap })
++        properties = { "mipmap" : mipmap }
++
++        # Enginehost: a movie frame with no mask is opaque - this line's
++        # decoder converts every frame to RGBA with alpha 255 (ffmedia.c,
++        # sws_scale to get_pixel_format), and only alpha_munge above gives a
++        # frame alpha - so it is the same premultiplied as not. Loading it as
++        # premultiplied makes gl2texture take load_gltexture_premultiplied
++        # (one glTexImage2D into the final texture) instead of
++        # load_gltexture, which draws every frame through the offscreen
++        # framebuffer and copies it back with glCopyTexImage2D. On an Adreno
++        # 650 that per-frame draw and copy corrupted movie frames and then
++        # crashed the driver, once in the draw (glDrawElements) and once in
++        # the copy (glCopyTexImage2D -> memset), both inside load_gltexture.
++        # ENGINEHOST_RENPY_MOVIE_FTL=1 restores the draw-and-copy load.
++        if (mask_surf is None and renpy.android and os.environ.get("ENGINEHOST_GAME_PATH")
++                and os.environ.get("ENGINEHOST_RENPY_MOVIE_FTL") != "1"):
++            properties["premultiplied"] = True
++
++        tex = renpy.display.draw.load_texture(surf, True, properties)
+         texture[channel] = tex
+         new = True
+     else:
+diff --git a/renpy/loader.py b/renpy/loader.py
+index 062d1464c139fa9d33c28be2b172976b7a7cd09c..19263e92b824575ea5b68459e941d1f501841f40 100644
+--- a/renpy/loader.py
++++ b/renpy/loader.py
+@@ -82,7 +82,18 @@ if renpy.android:
+ 
+     packs = [os.environ[i] for i in ["ANDROID_PACK_FF" + str(j+1) for j in range(4)] if i in os.environ and os.environ[i].endswith(".apk")]
+ 
+-    if renpy.config.renpy_base == renpy.config.basedir:
++    # Under Enginehost the game is a folder on disk, and the APK's own
++    # assets/x-game is only the packaging template RAPT needs to build at
++    # all. It must never be a source of game files: a game whose scripts live
++    # in a subfolder has no game/script.rpy to shadow the template's, so the
++    # template's `label start` ("This runtime must be started
++    # programmatically by enginehost.") ran in place of the game's story
++    # (rig: DivineDawn 0.27b on 8.1, 2026-09-17; Thief of Hearts on 7.8,
++    # 2026-09-24). Ren'Py's common files still come from the APK.
++    if os.environ.get("ENGINEHOST_GAME_PATH"):
++        print("Enginehost: game files come from the game folder only.")
++
++    if renpy.config.renpy_base == renpy.config.basedir and not os.environ.get("ENGINEHOST_GAME_PATH"):
+         # Read the game data from the APKs.
+ 
+         apks.append(android.apk.APK(prefix='assets/x-game/'))
+diff --git a/renpy/main.py b/renpy/main.py
+index dc3af95eb9566647109c342239a2a7bcbdbbd930..436dc8a5e770046764a3386f99ea4e55dfc79d8e 100644
+--- a/renpy/main.py
++++ b/renpy/main.py
+@@ -484,9 +484,43 @@ def main():
+     renpy.game.exception_info = 'After loading the script.'
+ 
+     # Find the save directory.
++    # Enginehost gives each engine one save folder, chosen by the person and
++    # handed to the runtime as ENGINEHOST_SAVE_PATH. Ren'Py names the game's
++    # own directory inside it exactly as it does on the desktop, so saves are
++    # reachable, survive an uninstall, and can be copied between devices.
++    enginehost_save_path = os.environ.get("ENGINEHOST_SAVE_PATH")
++    if os.environ.get("ENGINEHOST_GAME_PATH"):
++        # Under Enginehost the primary save directory is the folder the
++        # person chose in Enginehost (the shared save root, or Ren'Py's own
++        # root), with this game's own directory inside it named by
++        # config.save_directory -- exactly how Ren'Py places saves on a
++        # desktop (path_to_saves: <user save root>/<save_directory>). The
++        # game's own game/saves stays a second read/write location
++        # (savelocation.init adds it), as it is on a desktop, so saves made
++        # beside the game keep loading and keep being updated. Android's
++        # app-private folder is never used: RAPT assumed one game per app,
++        # so every game would share the same slots and persistent data.
++        #
++        # A game that names no save_directory has nothing to be told apart
++        # by inside a shared folder, so it saves beside itself only.
++        enginehost_game_save_path = os.environ.get("ENGINEHOST_GAME_SAVE_PATH")
++        if enginehost_game_save_path:
++            # The launching app gave this game's own save folder: Enginehost
++            # decides where saves go, and Ren'Py uses it as is (Droidtop/tracker#580).
++            renpy.config.savedir = enginehost_game_save_path
++        elif enginehost_save_path and renpy.config.save_directory:
++            renpy.config.savedir = os.path.join(enginehost_save_path, renpy.config.save_directory)
++        else:
++            renpy.config.savedir = os.path.join(renpy.config.gamedir, "saves")
++
+     if renpy.config.savedir is None:
+         renpy.config.savedir = renpy.__main__.path_to_saves(renpy.config.gamedir) # E1101 @UndefinedVariable
+ 
++    renpy.display.log.write("Enginehost save path: %r; game path: %r; savedir: %r",
++        enginehost_save_path, os.environ.get("ENGINEHOST_GAME_PATH"), renpy.config.savedir)
++    print("ENGINEHOST-SAVE: env save path %r; game path %r; savedir %r" % (
++        os.environ.get("ENGINEHOST_SAVE_PATH"), os.environ.get("ENGINEHOST_GAME_PATH"), renpy.config.savedir))
++
+     if renpy.game.args.savedir: # type: ignore
+         renpy.config.savedir = renpy.game.args.savedir # type: ignore
+ 
+diff --git a/renpy/savelocation.py b/renpy/savelocation.py
+index 64179159cacc212cd195c10e6c6135d26703399c..9b819c4a6cb2c198f994e10e215d1980ad47c5e6 100644
+--- a/renpy/savelocation.py
++++ b/renpy/savelocation.py
+@@ -693,9 +693,17 @@ def init():
+     location.add(FileLocation(renpy.config.savedir))
+ 
+     # 2. Game-local savedir.
+-    if (not renpy.mobile) and (not renpy.macapp):
++    # Enginehost runs the desktop game tree in place even though Ren'Py is on
++    # Android. Keep its existing game/saves directory in the read/write
++    # MultiLocation alongside the configured shared primary save directory.
++    # This preserves desktop saves without forcing an implicit migration.
++    enginehost_game_path = os.environ.get("ENGINEHOST_GAME_PATH")
++    if ((not renpy.mobile) and (not renpy.macapp)) or enginehost_game_path:
+         path = os.path.join(renpy.config.gamedir, "saves")
+-        location.add(FileLocation(path))
++        # The primary save directory may already be this folder; one location
++        # per folder, or every save would be written and listed twice.
++        if os.path.abspath(path) != os.path.abspath(renpy.config.savedir):
++            location.add(FileLocation(path))
+ 
+     # 3. Extra savedirs.
+     for i in renpy.config.extra_savedirs:
+@@ -703,6 +711,9 @@ def init():
+ 
+     # Scan the location once.
+     location.scan()
++    for enginehost_location in location.locations:
++        print("ENGINEHOST-SAVE: location %r active=%r" % (
++            getattr(enginehost_location, "directory", enginehost_location), enginehost_location.active))
+ 
+     renpy.loadsave.location = location
+ 

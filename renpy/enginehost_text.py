@@ -1,0 +1,161 @@
+# Enginehost: the game's lines go to Enginehost's text services, which read them aloud and
+# translate them when the person turned that on (Enginehost docs/text-services.md;
+# Droidtop/tracker#490). This core runs its own Activity and has no EngineHost, so the lines
+# reach Enginehost's named bridge, dev.enginehost.ActivityText, through the activity's
+# enginehostText and enginehostReplaceText (apply_android_integration.py). The owner chose that
+# route on 2026-10-28 until Ren'Py moves onto the plugin transport, where EngineHost.emitText
+# and replaceText replace it.
+#
+# Two hooks, both the same from Ren'Py 7.3 to 8.5:
+# - display_say, which every line goes through (ADV characters through renpy.character, NVL
+#   through renpy.display_say), sends the line as the reader sees it, and "advance" when its
+#   interaction ends.
+# - config.say_menu_text_filter, which a say statement runs on its text before it is shown,
+#   prints the translation in Ren'Py's own text box once Enginehost has it. A game's own filter
+#   still runs first; ours is kept around it at every interaction, since a game sets its filter
+#   during init, after this is installed.
+#
+# A say statement's id is its translation identifier, which Ren'Py sets for it and clears
+# after it, so both hooks name the line alike. A line without one (renpy.say from Python) is
+# named by its text. Game text is never logged.
+from __future__ import print_function
+
+import hashlib
+import json
+import os
+
+import renpy
+
+_activity = None
+_seq = [0]
+_original_display_say = None
+
+
+def _send(event):
+    try:
+        _activity.enginehostText(json.dumps(event))
+    except Exception as e:
+        print("Enginehost: a text event was not sent:", type(e).__name__)
+
+
+def _replacement(event):
+    try:
+        answer = _activity.enginehostReplaceText(json.dumps(event))
+    except Exception as e:
+        print("Enginehost: no replacement was asked for:", type(e).__name__)
+        return None
+    if not answer:
+        return None
+    try:
+        text = json.loads(answer).get("text")
+    except ValueError:
+        return None
+    return text if text else None
+
+
+def _plain(s):
+    """What the reader sees: Ren'Py's text tags taken out."""
+    try:
+        return renpy.text.extras.filter_text_tags(s, allow=[])
+    except Exception:
+        return s
+
+
+def _identifier():
+    try:
+        return renpy.game.context().translate_identifier
+    except Exception:
+        return None
+
+
+def _text_id(text):
+    return "text_" + hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
+
+
+def _voiced():
+    try:
+        return bool(renpy.store._get_voice_info().filename)
+    except Exception:
+        return False
+
+
+def _next_seq():
+    _seq[0] += 1
+    return _seq[0]
+
+
+def _display_say(who, what, *args, **kwargs):
+    _keep_filter()
+    line_id = None
+    # (who, what, show_function, interact, ...): interact comes as a keyword from both callers.
+    interact = kwargs.get("interact", args[1] if len(args) > 1 else True)
+    try:
+        text = _plain(what)
+        line_id = _identifier() or _text_id(text)
+        speaker = _plain(who) if who else None
+        kind = kwargs.get("type") or "say"
+        event = {
+            "v": 1, "t": "line", "id": line_id, "seq": _next_seq(),
+            "kind": "dialogue" if speaker else "narration",
+            "text": text, "voiced": _voiced(),
+            "window": "nvl" if str(kind).startswith("nvl") else "adv",
+        }
+        if speaker:
+            event["speaker"] = {"name": speaker}
+        _send(event)
+    except Exception as e:
+        print("Enginehost: a line was not reported:", type(e).__name__)
+    rv = _original_display_say(who, what, *args, **kwargs)
+    if line_id is not None and interact:
+        _send({"v": 1, "t": "advance", "id": line_id})
+    return rv
+
+
+class _Filter(object):
+    """The translation filter, around the game's own say_menu_text_filter (None when it has none)."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    def __call__(self, what):
+        if self.inner is not None:
+            what = self.inner(what)
+        line_id = _identifier()
+        # Only a say statement has an identifier here: a menu's choices keep their text.
+        if not line_id:
+            return what
+        translated = _replacement({"v": 1, "t": "line", "id": line_id, "text": _plain(what)})
+        if translated is None:
+            return what
+        # Shown as text: substitution and text tags must not read anything in it.
+        return translated.replace("[", "[[").replace("{", "{{")
+
+
+def _keep_filter():
+    current = renpy.config.say_menu_text_filter
+    if not isinstance(current, _Filter):
+        renpy.config.say_menu_text_filter = _Filter(current)
+
+
+def _on_interact():
+    _keep_filter()
+
+
+def install():
+    """Reports the game's lines to Enginehost, under Enginehost only."""
+    global _activity, _original_display_say
+    if not os.environ.get("ENGINEHOST_GAME_PATH"):
+        return
+    try:
+        from jnius import autoclass  # type: ignore
+        _activity = autoclass("org.renpy.android.PythonSDLActivity")
+    except Exception as e:
+        print("Enginehost: the game's text is not reported:", type(e).__name__)
+        return
+    # After a reload renpy.character is a fresh module: wrap what it holds now.
+    if renpy.character.display_say is not _display_say:
+        _original_display_say = renpy.character.display_say
+    renpy.character.display_say = _display_say
+    renpy.exports.display_say = _display_say
+    if _on_interact not in renpy.config.start_interact_callbacks:
+        renpy.config.start_interact_callbacks.append(_on_interact)

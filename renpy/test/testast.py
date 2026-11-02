@@ -1115,9 +1115,10 @@ class Label(Condition):
     def ready(self):
         # Match the evaluated value or the raw expression text.
         # This lets `label chapter_1` and `label "chapter_1"` both work,
-        # while also allowing `label label_name` to use a variable.
+        # while also allowing `label label_name` to use a variable. The raw text can have whitespace
+        # after it, if another clause follows.
 
-        names = [self.name]
+        names = [self.name.strip()]
 
         try:
             eval_name = scoped_eval(self.name)
@@ -1725,10 +1726,12 @@ class Assert(Node):
         Executes the assertion. If the condition is not ready, it waits up to
         `self.timeout` seconds.
         """
-        if (not self.condition.ready() ^ self.xfail) and t < _test.timeout:
+        ready = self.condition.ready()
+
+        if (not ready ^ self.xfail) and t < _test.timeout:
             return state
 
-        self.is_assertion_true = self.condition.ready()
+        self.is_assertion_true = ready
         renpy.test.testreporter.reporter.log_assert(self)
         self.cleanup_after_error(state)
         next_node(self.next)

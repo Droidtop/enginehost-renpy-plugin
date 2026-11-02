@@ -65,7 +65,9 @@ images, without being retained in the image cache.
 The new :func:`RawTexture` displayable loads an image as a texture without
 optimizing its bounds, and can skip alpha premultiplication. :meth:`Model.texture`
 also takes a new `premultiply` parameter. These are useful for textures that
-contain data rather than colors, like normal maps.
+contain data rather than colors, like normal maps. Passing ``premultiply=False``
+to :meth:`Model.texture` requires a literal image filename; image names,
+interpolated filenames, and displayable objects raise ValueError.
 
 Fixed a crash when transitions copy a Model containing a DynamicImage texture.
 The copied texture now preserves its texture wrapping settings.
@@ -94,6 +96,10 @@ Live2D Cubism 5.3. This requires the Cubism Core from Cubism SDK for Native
 modes or offscreens, as before. Models that don't use these features look
 the same as before, and are drawn without the extra textures and shaders
 these features require.
+
+Ren'Py now supports Live2D :ref:`pose files <live2d-poses>`, which keep alternative parts of a model, like two versions
+of an arm, from being shown at the same time. This can be controlled with the `pose` argument to :func:`Live2D` and
+the :var:`config.live2d_pose` variable, and is disabled in games that declare compatibility with Ren'Py 8.5 or earlier.
 
 Clipboard
 ---------

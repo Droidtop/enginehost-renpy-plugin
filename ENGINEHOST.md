@@ -5,14 +5,17 @@ seam: `renpy.bootstrap` honors `ENGINEHOST_GAME_PATH` as the game's base
 directory while keeping Ren'Py's runtime inside the separately installed
 Android plugin. Game scripts and assets continue to be read in place.
 
-## Branch model
+## Branches
 
-`master` follows upstream Ren'Py. `plugin-core` contains the portable
-enginehost bootstrap, Android entry point, RAPT integration, and build
-workflow. Release branches such as `plugin/8.5`, `plugin/8.3`, and
-`plugin/8.2` start at exact upstream releases and receive that changeset.
-Engine fixes remain within the appropriate release line; plugin integration
-fixes originate in `plugin-core` and are then applied to supported lines.
+A core has only these branches (Droidtop/tracker#324, the owner, 2026-11-05):
+
+- `upstream-sync` follows upstream Ren'Py (`renpy/renpy`). The daily `sync-upstream` workflow
+  (on `plugin-core`) merges upstream's `master` into it; nothing of ours is developed there.
+- `plugin-core`, the default branch, is the Enginehost recipe: the wrapper, the build workflows,
+  the bundle metadata, the patch series and the line pins. Recipe changes land here first,
+  through `ci/` branches.
+- `plugin/<line>` is upstream at the commit `enginehost/lines/<line>/line.json` pins, composed
+  with `plugin-core` by the plugin-line tool. Nothing on it is written by hand.
 
 Each release branch owns `enginehost/runtime.json`. Engine runtime version,
 Android package identity, and plugin release version are separate values. This

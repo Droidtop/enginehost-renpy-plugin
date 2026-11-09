@@ -100,6 +100,9 @@ which is consistent with the Live2D SDK. This behavior can be changed with the `
 displayable, or with the :var:`config.live2d_old_beziers` variable, and the old interpretation is used in games that
 declare compatibility with Ren'Py 8.5 or earlier.
 
+Live2D clipping masks are now cropped to the bounds of their geometry, which uses less texture memory. This can be
+disabled with the :var:`config.live2d_mask_clipping` variable.
+
 Clipboard
 ---------
 
@@ -306,6 +309,8 @@ only the positional arguments or only the keyword arguments of another statement
 
 :class:`AudioData` can now be played on the web platform.
 
+The new `place_child` argument to :func:`AlphaMask` makes it the size of the larger of its child and mask, and honors
+the position properties of its child, which allows a child to move behind a mask that stays still.
 
 Automated Testing
 -----------------
@@ -419,6 +424,9 @@ backslash. The error message for mismatched indentation has been improved.
 
 The default :file:`.gitignore` for new projects excludes Android keystore files.
 
+``renpy.pygame.Surface.get_buffer`` now returns a writable memoryview of the
+surface's pixels and surfaces support Python's buffer protocol.
+
 Fixes
 -----
 
@@ -473,6 +481,12 @@ When an image is replaced while an ATL transform is kept running (see
 :var:`config.keep_running_transform`), ATL child statements that show the
 transform's child now show the new image, rather than bringing back the image
 that was replaced.
+
+On Android, Ren'Py no longer clears the setgid bit on save directories in
+external storage, so saves can be read from outside the game, such as with
+``adb``. New files and directories now give their group access. Save
+directories that previous versions damaged are repaired when the game starts,
+by replacing them with a copy.
 
 .. _renpy-8.5.4:
 
